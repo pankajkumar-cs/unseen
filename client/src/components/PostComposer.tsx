@@ -102,7 +102,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
           <div><div className="text-xs font-bold tracking-[.2em] text-unseen-600">DROP A SECRET</div><h2 id="composer-heading" className="mt-2 font-grotesk text-2xl font-bold">Speak anonymously.</h2><p className="mt-1 text-sm text-muted">Your post will appear as {profile?.display_name ?? 'your campus ghost'}.</p></div>
           <button type="button" onClick={onClose} disabled={busy} className="chip flex h-9 w-9 shrink-0 items-center justify-center rounded-full" aria-label="Close composer"><X size={17} /></button>
         </div>
-        {!profile?.isRegistered && <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-800">Create or sign in to your anonymous campus account to post. Visitors can still read, like, vote, and react. <button type="button" onClick={() => onOpenAuth('register')} className="ml-1 font-bold underline">Join UNSEEN</button></div>}
+        {!profile?.isRegistered && <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-800">Create or sign in to your anonymous campus account to post, like, or comment. Visitors can still read and vote. <button type="button" onClick={() => onOpenAuth('register')} className="ml-1 font-bold underline">Join UNSEEN</button></div>}
         <form onSubmit={(event) => void submit(event)} className="mt-5 space-y-4">
           <label className="block text-sm font-semibold">Post type
             <select value={category} onChange={(event) => setCategory(event.target.value as PostCategory)} disabled={busy} className="input-themed mt-1.5 w-full rounded-2xl px-4 py-3">

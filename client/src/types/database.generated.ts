@@ -1413,6 +1413,7 @@ export type Database = {
       random_chat_send: {
         Args: { p_body: string; p_session_key: string }
         Returns: {
+          broadcast_ticket: string
           body: string
           created_at: string
           sender_id: string
@@ -1633,4 +1634,3 @@ export const Constants = {
     },
   },
 } as const
-

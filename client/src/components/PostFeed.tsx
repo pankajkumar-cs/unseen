@@ -286,6 +286,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   });
 
   const changeLike = async () => {
+    if (!profile?.isRegistered) { onOpenAuth('login'); return; }
     if (lock.current) return;
     lock.current = true;
     const liked = !post.liked;
@@ -398,12 +399,15 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
             </div>)}
             {!commentsLoading && comments.length === 0 && <p className="py-3 text-center text-xs text-muted">No replies yet. Keep it kind and be the first.</p>}
           </div>
-          <form onSubmit={(event) => void addComment(event)} className="mt-4 flex gap-2">
+          {profile?.isRegistered ? <form onSubmit={(event) => void addComment(event)} className="mt-4 flex gap-2">
             <label className="sr-only" htmlFor={`comment-${post.id}`}>Write an anonymous reply</label>
             <input id={`comment-${post.id}`} value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={500} placeholder="Reply anonymously…" className="input-themed min-w-0 flex-1 rounded-full px-4 py-2.5 text-[13px] font-medium" />
             <button disabled={pending || !commentText.trim()} className="btn-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send reply"><Send size={15} /></button>
-          </form>
-          {!profile?.isRegistered && <p className="mt-2 text-center text-[11px] text-muted">Sign in to reply. Your campus identity stays anonymous.</p>}
+          </form> : <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-muted">
+            <span>Sign in or join to reply anonymously.</span>
+            <button type="button" onClick={() => onOpenAuth('login')} className="font-bold text-unseen-700 underline">Sign in</button>
+            <button type="button" onClick={() => onOpenAuth('register')} className="font-bold text-unseen-700 underline">Join UNSEEN</button>
+          </div>}
         </div>
       )}
 

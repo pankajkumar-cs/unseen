@@ -15,7 +15,6 @@ export default defineConfig({
         manualChunks(id) {
           if (/\/node_modules\/(?:react|react-dom)(?:\/|$)/.test(id)) return 'react';
           if (id.includes('/node_modules/@supabase/supabase-js/')) return 'supabase';
-          if (/\/node_modules\/three\//.test(id)) return 'three';
         },
       },
     },

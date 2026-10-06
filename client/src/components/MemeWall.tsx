@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, LoaderCircle, Share2 } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
 import { loadPostPage, toggleLike, type FeedCursor, type PostView } from '../services/feed';
 
@@ -7,10 +8,12 @@ const MEME_LIMIT = 32;
 type SwipeDirection = 'left' | 'right';
 
 interface MemeWallProps {
+  onOpenAuth: (mode: 'login' | 'register') => void;
   onToast: (message: string, kind?: 'success' | 'error' | 'info') => void;
 }
 
-export function MemeWall({ onToast }: MemeWallProps) {
+export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
+  const { profile } = useAuth();
   const [memes, setMemes] = useState<PostView[]>([]);
   const [index, setIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -63,6 +66,7 @@ export function MemeWall({ onToast }: MemeWallProps) {
   const advance = (direction: SwipeDirection) => {
     const current = memes[index];
     if (!current || swipeLock.current) return;
+    if (direction === 'right' && !profile?.isRegistered) { onOpenAuth('login'); return; }
     swipeLock.current = true;
     setSwiping(direction);
     if (direction === 'right' && !current.liked) {
@@ -99,7 +103,7 @@ export function MemeWall({ onToast }: MemeWallProps) {
           <div><div className="text-xs font-bold tracking-[.2em] text-unseen-600">😂 MEME WALL · SWIPE MODE</div><h2 id="meme-wall-title" className="mt-2 font-grotesk text-3xl font-bold tracking-tight sm:text-[42px]">DEC Meme Wall — <span className="grad-text">swipe karo, haso, repeat.</span></h2><p className="mt-1 text-sm font-medium text-muted">Drag cards left to skip, right to LOL. Campus memes are real student posts.</p></div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => advance('left')} disabled={!top || Boolean(swiping)} aria-label="Skip meme" className="flex h-12 w-12 items-center justify-center rounded-full border border-soft bg-card text-xl shadow-sm transition hover:scale-105 disabled:opacity-40"><ChevronLeft size={22} /><span className="sr-only">Skip</span></button>
-            <button type="button" onClick={() => advance('right')} disabled={!top || Boolean(swiping)} aria-label="Like meme" className="btn-primary flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-lg transition hover:scale-105 disabled:opacity-40">🤣</button>
+            <button type="button" onClick={() => advance('right')} disabled={!top || Boolean(swiping)} aria-label={profile?.isRegistered ? 'Like meme' : 'Sign in to like meme'} className="btn-primary flex h-14 w-14 items-center justify-center rounded-full text-2xl shadow-lg transition hover:scale-105 disabled:opacity-40">🤣</button>
             <button type="button" onClick={() => top ? void share(top) : onToast('No meme to share yet.', 'info')} aria-label="Share current meme" className="flex h-12 w-12 items-center justify-center rounded-full border border-soft bg-card shadow-sm transition hover:scale-105"><Share2 size={19} /></button>
           </div>
         </div>

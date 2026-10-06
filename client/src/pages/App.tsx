@@ -15,7 +15,6 @@ const PostComposer = lazy(() => import('../components/PostComposer').then((modul
 const ProfileDialog = lazy(() => import('../components/ProfileDialog').then((module) => ({ default: module.ProfileDialog })));
 const AdminPanel = lazy(() => import('../components/AdminPanel').then((module) => ({ default: module.AdminPanel })));
 const RandomChat = lazy(() => import('../components/RandomChat').then((module) => ({ default: module.RandomChat })));
-const CampusScene = lazy(() => import('../components/CampusScene').then((module) => ({ default: module.CampusScene })));
 const MemeWall = lazy(() => import('../components/MemeWall').then((module) => ({ default: module.MemeWall })));
 
 type Toast = { id: number; text: string; kind: 'success' | 'error' | 'info' };
@@ -61,12 +60,6 @@ export function App() {
     return () => { window.removeEventListener('scroll', updateScrollEffects); cancelAnimationFrame(frame); };
   }, []);
 
-  const exploreCampus = useCallback((category: PostCategory | null, label: string) => {
-    setFeedCategory(category);
-    toast(`${label} · opening related campus stories.`, 'info');
-    window.setTimeout(() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' }), 50);
-  }, [toast]);
-
   if (!configured) return <SetupNotice />;
   if (loading) return <Preloader />;
 
@@ -88,9 +81,6 @@ export function App() {
             <div id="sky-bg" className="absolute inset-0 bg-gradient-to-b from-[var(--hero1)] via-[var(--hero2)] to-[var(--hero3)]" />
             <div id="college-photo-slot" className="pointer-events-none absolute inset-0" aria-hidden="true" />
             <div id="hero-atmosphere" className="pointer-events-none absolute inset-0 opacity-50" style={{ background: 'radial-gradient(800px 400px at 20% 10%,rgba(124,58,237,.18),transparent),radial-gradient(700px 400px at 85% 20%,rgba(14,165,233,.12),transparent),radial-gradient(600px 500px at 50% 90%,rgba(245,158,11,.10),transparent)' }} />
-            <Suspense fallback={<div className="absolute inset-0 flex items-center justify-center text-6xl" aria-label="Campus illustration">🏫🌳📚🍜</div>}>
-              <CampusScene onExplore={exploreCampus} />
-            </Suspense>
             <div id="hero-bubbles" className="pointer-events-none absolute inset-0 z-[4] hidden lg:block">
               <div className="float-bubble glass absolute right-[6%] top-[22%] max-w-[210px] rounded-2xl border border-soft p-3 soft"><div className="text-[10px] font-bold tracking-widest text-unseen-600">LIVE COMMUNITY</div><div className="mt-1 text-xs font-semibold">Real student posts appear here as they arrive.</div></div>
               <div className="float-bubble glass absolute right-[6%] top-[43%] max-w-[220px] rounded-2xl border border-soft p-3 soft" style={{ animationDelay: '1.2s' }}><div className="text-[10px] font-bold tracking-widest text-sky-700">100% ANONYMOUS</div><div className="mt-1 text-xs font-semibold">Only what your campus actually shares — no preloaded stories.</div></div>
@@ -129,7 +119,7 @@ export function App() {
           <PollSection onOpenAuth={setAuthMode} onToast={toast} />
           <CrushSection onOpenAuth={setAuthMode} onToast={toast} />
           <MailboxSection onOpenAuth={setAuthMode} onToast={toast} />
-          <DeferredMemeWall onToast={toast} />
+          <DeferredMemeWall onOpenAuth={setAuthMode} onToast={toast} />
           <SafetySection onOpenMailbox={() => document.getElementById('mailbox')?.scrollIntoView({ behavior: 'smooth' })} />
           <CallToAction onCreatePost={() => setComposerOpen(true)} />
           <Footer onOpenAdmin={() => setAdminOpen(true)} showAdmin={profile?.role === 'ADMIN'} />
@@ -164,7 +154,7 @@ function OnlineVisitorCount() {
   );
 }
 
-function DeferredMemeWall({ onToast }: { onToast: (message: string, kind?: Toast['kind']) => void }) {
+function DeferredMemeWall({ onOpenAuth, onToast }: { onOpenAuth: (mode: 'login' | 'register') => void; onToast: (message: string, kind?: Toast['kind']) => void }) {
   const [visible, setVisible] = useState(false);
   const target = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -177,7 +167,7 @@ function DeferredMemeWall({ onToast }: { onToast: (message: string, kind?: Toast
     return () => observer.disconnect();
   }, []);
   return <div ref={target} id="memes" className="mt-14">
-    {visible ? <Suspense fallback={<MemeWallPlaceholder />}><MemeWall onToast={onToast} /></Suspense> : <MemeWallPlaceholder />}
+    {visible ? <Suspense fallback={<MemeWallPlaceholder />}><MemeWall onOpenAuth={onOpenAuth} onToast={onToast} /></Suspense> : <MemeWallPlaceholder />}
   </div>;
 }
 
@@ -218,7 +208,7 @@ function CallToAction({ onCreatePost }: { onCreatePost: () => void }) {
 }
 
 function Footer({ onOpenAdmin, showAdmin }: { onOpenAdmin: () => void; showAdmin: boolean }) {
-  return <footer className="border-t border-soft bg-card"><div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2"><div><div className="flex items-center gap-2.5"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 text-xl text-white">👁️</div><div className="font-grotesk text-lg font-bold">UNSEEN</div></div><p className="mt-3 text-[13px] font-medium leading-relaxed text-muted">Exclusive anonymous platform for <b className="text-primary">Dumka Engineering College</b>. Instagram + Reddit + diary + 3D campus — sab ek jagah.</p><div className="mt-4 flex gap-2"><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">📍 Dumka, Jharkhand</span><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">🎓 JUT Affiliated</span></div></div><div><div className="font-grotesk text-sm font-bold tracking-wider">EXPLORE</div><div className="mt-3 flex flex-col gap-2 text-[13px] font-semibold text-muted"><a href="#pulse">⚡ Live Pulse</a><a href="#explore">✨ Confessions Feed</a><a href="#battles">🎲 Campus Polls</a><a href="#memes">😂 Meme Wall</a></div>{showAdmin && <button type="button" onClick={onOpenAdmin} className="chip mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold"><ShieldCheck size={16} /> Admin Dashboard</button>}</div></div><div className="border-t border-soft px-4 py-5 text-center text-[12px] font-semibold text-faint sm:px-6">© 2026 UNSEEN · Made with 💜 for Dumka Engineering College · Ye literally hamare college ke liye bana hai. <span className="mx-2">·</span><a href="#safety">Guidelines</a></div></footer>;
+  return <footer className="border-t border-soft bg-card"><div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2"><div><div className="flex items-center gap-2.5"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 text-xl text-white">👁️</div><div className="font-grotesk text-lg font-bold">UNSEEN</div></div><p className="mt-3 text-[13px] font-medium leading-relaxed text-muted">Exclusive anonymous platform for <b className="text-primary">Dumka Engineering College</b>. Instagram + Reddit + diary — sab ek jagah.</p><div className="mt-4 flex gap-2"><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">📍 Dumka, Jharkhand</span><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">🎓 JUT Affiliated</span></div></div><div><div className="font-grotesk text-sm font-bold tracking-wider">EXPLORE</div><div className="mt-3 flex flex-col gap-2 text-[13px] font-semibold text-muted"><a href="#pulse">⚡ Live Pulse</a><a href="#explore">✨ Confessions Feed</a><a href="#battles">🎲 Campus Polls</a><a href="#memes">😂 Meme Wall</a></div>{showAdmin && <button type="button" onClick={onOpenAdmin} className="chip mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold"><ShieldCheck size={16} /> Admin Dashboard</button>}</div></div><div className="border-t border-soft px-4 py-5 text-center text-[12px] font-semibold text-faint sm:px-6">© 2026 UNSEEN · Made with 💜 for Dumka Engineering College · Ye literally hamare college ke liye bana hai. <span className="mx-2">·</span><a href="#safety">Guidelines</a></div></footer>;
 }
 
 function SetupNotice() {
