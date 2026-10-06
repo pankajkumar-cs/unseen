@@ -1,0 +1,24 @@
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+  root: 'client',
+  envDir: '..',
+  plugins: [react(), tailwindcss()],
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (/\/node_modules\/(?:react|react-dom)(?:\/|$)/.test(id)) return 'react';
+          if (id.includes('/node_modules/@supabase/supabase-js/')) return 'supabase';
+          if (/\/node_modules\/three\//.test(id)) return 'three';
+        },
+      },
+    },
+  },
+  server: { host: '127.0.0.1', port: 5173, strictPort: true },
+});

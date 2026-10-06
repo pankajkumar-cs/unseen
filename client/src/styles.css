@@ -1,0 +1,39 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+@theme {
+  --color-unseen-50: #f5f3ff;
+  --color-unseen-100: #ede9fe;
+  --color-unseen-200: #ddd6fe;
+  --color-unseen-300: #c4b5fd;
+  --color-unseen-400: #a78bfa;
+  --color-unseen-500: #8b5cf6;
+  --color-unseen-600: #7c3aed;
+  --color-unseen-700: #6d28d9;
+  --color-unseen-800: #5b21b6;
+  --color-unseen-900: #4c1d95;
+  --color-card: var(--surface);
+  --color-soft: var(--surface2);
+  --color-lav: var(--bg2);
+  --color-primary: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+}
+
+html { scroll-padding-top: 5.5rem; }
+body { min-width: 320px; margin: 0; overflow-x: hidden; }
+button, input, textarea, select { font: inherit; }
+button { touch-action: manipulation; }
+img { max-width: 100%; }
+.site-main { padding-top: 68px; }
+.feed-two-col { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: start; gap: 1.25rem; }
+.feed-post-image { display: block; max-height: 34rem; width: 100%; object-fit: cover; border-radius: 1rem; }
+.meme-swipe-left { animation: unseenMemeLeft .42s ease-in forwards; }
+.meme-swipe-right { animation: unseenMemeRight .42s ease-in forwards; }
+@keyframes unseenMemeLeft { to { opacity: 0; transform: translate(-420px, 60px) rotate(-20deg); } }
+@keyframes unseenMemeRight { to { opacity: 0; transform: translate(420px, 60px) rotate(20deg); } }
+@media (prefers-reduced-motion: reduce) { .meme-swipe-left, .meme-swipe-right { animation-duration: .01ms; } }
+.skeleton { background: linear-gradient(90deg, var(--surface2), rgba(124,58,237,.08), var(--surface2)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+.toast-enter { animation: toastIn .35s cubic-bezier(.34,1.56,.64,1); }
+@media (max-width: 1023px) { .feed-two-col { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 639px) { .site-main { padding-top: 68px; } }
