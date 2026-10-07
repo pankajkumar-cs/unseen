@@ -48,8 +48,8 @@ export interface MailboxView {
   createdAt: string;
 }
 
-function throwIfError(error: { message: string } | null) {
-  if (error) throw new Error(error.message);
+function throwIfError(error: unknown) {
+  if (error) throw error;
 }
 
 function pollOptions(value: Json): PollOption[] {

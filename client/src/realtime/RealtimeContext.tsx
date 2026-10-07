@@ -7,7 +7,10 @@ export interface RealtimeEvent {
 }
 
 type RealtimeListener = (event: RealtimeEvent) => void;
-interface RealtimeContextValue { subscribe: (listener: RealtimeListener) => () => void }
+interface RealtimeContextValue {
+  subscribe: (listener: RealtimeListener) => () => void;
+  publish: (event: RealtimeEvent) => void;
+}
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 const OnlineCountContext = createContext<number | null | undefined>(undefined);
 
@@ -21,6 +24,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const listeners = useRef(new Set<RealtimeListener>());
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
 
+  const publish = useCallback((event: RealtimeEvent) => {
+    listeners.current.forEach((listener) => {
+      try { listener(event); } catch { /* One subscriber should not interrupt the others. */ }
+    });
+  }, []);
+
   useEffect(() => {
     const client = requireSupabase();
     let channel = client.channel('unseen:feed', { config: { private: false, broadcast: { self: false } } });
@@ -31,8 +40,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       channel = channel.on('broadcast', { event: eventName }, (message) => {
         const payload = message.payload;
         if (!payload || typeof payload !== 'object') return;
-        const event: RealtimeEvent = { type: eventName, payload: payload as Record<string, unknown> };
-        listeners.current.forEach((listener) => listener(event));
+        publish({ type: eventName, payload: payload as Record<string, unknown> });
       });
     }
     channel.subscribe((status) => {
@@ -48,13 +56,13 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       setOnlineCount(null);
       void client.removeChannel(channel);
     };
-  }, []);
+  }, [publish]);
 
   const subscribe = useCallback((listener: RealtimeListener) => {
     listeners.current.add(listener);
     return () => { listeners.current.delete(listener); };
   }, []);
-  const value = useMemo(() => ({ subscribe }), [subscribe]);
+  const value = useMemo(() => ({ subscribe, publish }), [publish, subscribe]);
   return (
     <RealtimeContext.Provider value={value}>
       <OnlineCountContext.Provider value={onlineCount}>{children}</OnlineCountContext.Provider>
@@ -68,6 +76,12 @@ export function useRealtime(subscriber: RealtimeListener) {
   const current = useRef(subscriber);
   current.current = subscriber;
   useEffect(() => context.subscribe((event) => current.current(event)), [context]);
+}
+
+export function usePublishRealtime() {
+  const context = useContext(RealtimeContext);
+  if (!context) throw new Error('usePublishRealtime must be used within RealtimeProvider.');
+  return context.publish;
 }
 
 export function useOnlineCount() {

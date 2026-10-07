@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
+import { getFunctionErrorMessage, getUserFacingError } from '../lib/errors';
 import type { AnonymousIdentityRow, ProfileRow } from '../types/database';
 
 export interface ViewerProfile {
@@ -35,10 +36,9 @@ interface AuthEdgeResponse {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function edgeError(error: unknown, message?: string): Error {
-  if (message) return new Error(message);
-  if (error instanceof Error) return error;
-  return new Error('Authentication could not be completed. Please try again.');
+async function edgeError(error: unknown, message?: string): Promise<Error> {
+  const fallback = 'Authentication could not be completed. Check your details and try again.';
+  return new Error(message ? getUserFacingError(message, fallback) : await getFunctionErrorMessage(error, fallback));
 }
 
 async function hydrateViewer(session: Session | null): Promise<ViewerProfile | null> {
@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const nextProfile = await hydrateViewer(nextSession);
         if (alive) setProfile(nextProfile);
       } catch (cause) {
-        if (alive) setError(cause instanceof Error ? cause.message : 'Could not load your anonymous profile.');
+        if (alive) setError(getUserFacingError(cause, 'Could not load your anonymous profile. Please refresh and try again.'));
       } finally {
         if (alive) setLoading(false);
       }
@@ -119,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await applySession(anonymousData.session);
       } catch (cause) {
         if (!alive) return;
-        setError(cause instanceof Error ? cause.message : 'Could not connect to UNSEEN.');
+        setError(getUserFacingError(cause, 'Could not connect to UNSEEN. Check your internet connection and refresh.'));
         setLoading(false);
       }
     })();
@@ -136,9 +136,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data, error: invokeError } = await client.functions.invoke<AuthEdgeResponse>('auth', {
       body: { action: 'login', username, password },
     });
-    if (invokeError) throw edgeError(invokeError);
-    if (data?.error) throw edgeError(null, data.error);
-    if (!data?.session) throw edgeError(null, 'We could not sign you in. Please try again.');
+    if (invokeError) throw await edgeError(invokeError);
+    if (data?.error) throw await edgeError(null, data.error);
+    if (!data?.session) throw await edgeError(null, 'We could not sign you in. Please try again.');
     const { error: sessionError } = await client.auth.setSession({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,
@@ -147,13 +147,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (invitationCode: string, username: string, password: string, confirmPassword: string) => {
+    if (password !== confirmPassword) throw await edgeError(null, 'Passwords do not match.');
+    if (!invitationCode.trim()) throw await edgeError(null, 'Invitation code is required.');
+    if (!/^[a-z0-9_]{3,20}$/i.test(username.trim())) throw await edgeError(null, 'Choose a username with 3–20 letters, numbers, or underscores.');
+    if (password.length < 10 || password.length > 128) throw await edgeError(null, 'Choose a password with at least 10 characters.');
     const client = requireSupabase();
     const { data, error: invokeError } = await client.functions.invoke<AuthEdgeResponse>('auth', {
       body: { action: 'register', invitationCode, username, password, confirmPassword },
     });
-    if (invokeError) throw edgeError(invokeError);
-    if (data?.error) throw edgeError(null, data.error);
-    if (!data?.session) throw edgeError(null, 'Your account was created. Sign in to continue.');
+    if (invokeError) throw await edgeError(invokeError);
+    if (data?.error) throw await edgeError(null, data.error);
+    if (!data?.session) throw await edgeError(null, 'Your account was created. Sign in to continue.');
     const { error: sessionError } = await client.auth.setSession({
       access_token: data.session.access_token,
       refresh_token: data.session.refresh_token,

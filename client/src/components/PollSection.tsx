@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { getUserFacingError } from '../lib/errors';
+import { formatIndiaDate } from '../lib/dates';
 import { Check, Plus, Vote, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
@@ -20,7 +22,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
 
   const refresh = async () => {
     try { setPolls(await loadPolls()); }
-    catch (cause) { onToast(cause instanceof Error ? cause.message : 'Campus polls could not load.', 'error'); }
+    catch (cause) { onToast(getUserFacingError(cause, 'Campus polls could not load.'), 'error'); }
     finally { setLoading(false); }
   };
 
@@ -43,7 +45,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
       if (result) setPolls((current) => current.map((item) => item.id === poll.id ? { ...item, totalVotes: result.total_votes, myOptionId: result.selected_option_id } : item));
     } catch (cause) {
       setPolls((current) => current.map((item) => item.id === poll.id ? previous : item));
-      onToast(cause instanceof Error ? cause.message : 'Your vote could not be saved.', 'error');
+      onToast(getUserFacingError(cause, 'Your vote could not be saved.'), 'error');
     }
   };
 
@@ -59,7 +61,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
       await refresh();
       setComposerOpen(false);
       onToast('Your poll is live for campus.', 'success');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your poll could not be published.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your poll could not be published.'), 'error'); }
   };
 
   return (
@@ -77,7 +79,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
         {!loading && polls.length > 0 && <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{polls.map((poll) => <article key={poll.id} className="card relative overflow-hidden p-6">
           <div className="text-[10px] font-bold tracking-[.18em] text-unseen-600">{poll.tag}</div>
           <h3 className="mt-1.5 font-grotesk text-lg font-bold leading-snug">{poll.question}</h3>
-          <div className="mt-2 flex items-center gap-2 text-[11px] font-bold text-faint">{poll.totalVotes.toLocaleString()} votes · Expires {new Date(poll.expiresAt).toLocaleDateString()}</div>
+          <div className="mt-2 flex items-center gap-2 text-[11px] font-bold text-faint">{poll.totalVotes.toLocaleString()} votes · Expires {formatIndiaDate(poll.expiresAt)}</div>
           <div className="mt-4 flex flex-col gap-2.5">
             {poll.options.map((option) => {
               const selected = poll.myOptionId === option.id;

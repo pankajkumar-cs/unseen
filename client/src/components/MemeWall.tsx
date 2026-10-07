@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getUserFacingError } from '../lib/errors';
 import { ChevronLeft, LoaderCircle, Share2 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
@@ -39,7 +40,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
       });
       if (reset) setIndex(0);
     } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : 'The Meme Wall could not load.', 'error');
+      onToast(getUserFacingError(cause, 'The Meme Wall could not load.'), 'error');
     } finally { setLoading(false); }
   }, [onToast]);
 
@@ -71,7 +72,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
     setSwiping(direction);
     if (direction === 'right' && !current.liked) {
       void toggleLike(current.id, true).catch((cause: unknown) => {
-        onToast(cause instanceof Error ? cause.message : 'The meme could not be liked.', 'error');
+        onToast(getUserFacingError(cause, 'The meme could not be liked.'), 'error');
       });
     }
     window.setTimeout(() => {
@@ -87,7 +88,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
       if (navigator.share) await navigator.share({ title: 'UNSEEN campus meme', url });
       else { await navigator.clipboard.writeText(url); onToast('Meme link copied.', 'success'); }
     } catch (cause) {
-      if (cause instanceof Error && cause.name !== 'AbortError') onToast('Could not share this meme.', 'error');
+      if (!(cause instanceof Error && cause.name === 'AbortError')) onToast(getUserFacingError(cause, 'Could not share this meme.'), 'error');
     }
   };
 

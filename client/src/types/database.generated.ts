@@ -1411,11 +1411,12 @@ export type Database = {
         Returns: string
       }
       random_chat_send: {
-        Args: { p_body: string; p_session_key: string }
+        Args: { p_body: string; p_session_key: string; p_client_message_id?: string }
         Returns: {
           broadcast_ticket: string
           body: string
           created_at: string
+          client_message_id: string
           sender_id: string
           sender_profile: Json
         }[]

@@ -97,9 +97,10 @@ Deno.serve(async (request) => {
     if (!/^[a-z0-9_]{3,20}$/.test(username)) {
       return json({ error: 'Choose a username with 3–20 letters, numbers, or underscores.' }, 400);
     }
-    if (password.length < 10 || password.length > 128) return json({ error: 'Please choose a stronger password.' }, 400);
-    if (password !== String(body.confirmPassword ?? '')) return json({ error: 'Passwords do not match.' }, 400);
-    const { data: existing } = await admin.from('profiles').select('id').eq('username', username).maybeSingle();
+    if (password.length < 10 || password.length > 128) return json({ error: 'Choose a password with at least 10 characters.' }, 400);
+    if (password !== String(body.confirmPassword ?? '')) return json({ error: 'Passwords do not match. Re-enter the same password in both fields.' }, 400);
+    const { data: existing, error: existingError } = await admin.from('profiles').select('id').eq('username', username).maybeSingle();
+    if (existingError) return json({ error: 'We could not check username availability right now. Please try again shortly.' }, 503);
     if (existing) return json({ error: 'Username already taken.' }, 409);
 
     const codeDigest = await sha256(code);

@@ -32,6 +32,8 @@ Deno.serve(async (request) => {
     body = await request.json() as Record<string, unknown>;
   } catch { return json({ error: 'Invalid request.' }, 400); }
   const action = String(body.action ?? '');
+  const requestedPage = Number(body.page ?? 0);
+  const page = Number.isSafeInteger(requestedPage) ? Math.max(0, Math.min(requestedPage, 100_000)) : 0;
   const admin = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const { data: profile, error: profileError } = await admin.from('profiles')
     .select('id,username,role,moderation_status').eq('id', userData.user.id).maybeSingle();
@@ -66,29 +68,36 @@ Deno.serve(async (request) => {
       return json({ overview: { activeAccounts: accounts.count ?? 0, posts: posts.count ?? 0, openReports: reports.count ?? 0, media: media.count ?? 0, activeChats: chats.count ?? 0, waiting: waiting.count ?? 0 } });
     }
     if (action === 'users') {
-      const { data, error } = await admin.from('profiles').select('id,username,role,moderation_status,moderation_reason,created_at').order('created_at', { ascending: false }).limit(100);
+      const search = String(body.search ?? '').normalize('NFKC').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+      let query = admin.from('profiles').select('id,username,role,moderation_status,moderation_reason,created_at', { count: 'exact' })
+        .order('created_at', { ascending: false });
+      if (search) query = query.ilike('username', `${search}%`);
+      const { data, error, count } = await query.range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load campus accounts.' }, 503);
-      return json({ rows: data ?? [] });
+      return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
     }
     if (action === 'posts') {
-      const { data, error } = await admin.from('posts').select('public_id,category,body,status,author_name,created_at,expires_at').order('created_at', { ascending: false }).limit(100);
+      const { data, error, count } = await admin.from('posts').select('public_id,category,body,status,author_name,created_at,expires_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load posts for review.' }, 503);
-      return json({ rows: (data ?? []).map((row) => ({ ...row, id: row.public_id })) });
+      return json({ rows: (data ?? []).map((row) => ({ ...row, id: row.public_id })), total: count ?? 0, pageSize: 100 });
     }
     if (action === 'reports') {
-      const { data, error } = await admin.from('reports').select('id,target_type,post_public_id,comment_id,reported_user_id,reason,detail,status,created_at').eq('status', 'open').order('created_at', { ascending: false }).limit(100);
+      const { data, error, count } = await admin.from('reports').select('id,target_type,post_public_id,comment_id,reported_user_id,reason,detail,status,created_at', { count: 'exact' })
+        .eq('status', 'open').order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load open reports.' }, 503);
-      return json({ rows: data ?? [] });
+      return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
     }
     if (action === 'comments') {
-      const { data, error } = await admin.from('comments').select('public_id,post_public_id,body,author_name,created_at').order('created_at', { ascending: false }).limit(100);
+      const { data, error, count } = await admin.from('comments').select('public_id,post_public_id,body,author_name,created_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load comments for review.' }, 503);
-      return json({ rows: (data ?? []).map((row) => ({ ...row, id: row.public_id })) });
+      return json({ rows: (data ?? []).map((row) => ({ ...row, id: row.public_id })), total: count ?? 0, pageSize: 100 });
     }
     if (action === 'media') {
-      const { data: media, error } = await admin.from('media')
-        .select('id,owner_user_id,post_public_id,storage_path,file_size_bytes,created_at')
-        .order('created_at', { ascending: false }).limit(60);
+      const { data: media, error, count } = await admin.from('media')
+        .select('id,owner_user_id,post_public_id,storage_path,file_size_bytes,created_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * 60, page * 60 + 59);
       if (error) return json({ error: 'Could not load campus images for review.' }, 503);
       const userIds = [...new Set((media ?? []).map((row) => row.owner_user_id))];
       const [identities, signed] = await Promise.all([
@@ -98,17 +107,19 @@ Deno.serve(async (request) => {
       if (identities.error || signed.error) return json({ error: 'Could not prepare images for moderation review.' }, 503);
       const names = new Map((identities.data ?? []).map((row) => [row.user_id, row.display_name]));
       const urls = new Map((signed.data ?? []).flatMap((row) => row.path && row.signedUrl ? [[row.path, row.signedUrl] as const] : []));
-      return json({ rows: (media ?? []).map((row) => ({
+      const rows = (media ?? []).map((row) => ({
         id: row.id,
         post_public_id: row.post_public_id,
         author_name: names.get(row.owner_user_id) ?? 'Anonymous Ghost',
         signed_url: urls.get(row.storage_path) ?? null,
         file_size_bytes: row.file_size_bytes,
         created_at: row.created_at,
-      })) });
+      }));
+      return json({ rows, total: count ?? 0, pageSize: 60 });
     }
     if (action === 'chat-reports') {
-      const { data: reports, error } = await admin.from('random_chat_reports').select('id,session_id,reporter_id,reported_id,reason,detail,status,created_at').eq('status', 'OPEN').order('created_at', { ascending: false }).limit(40);
+      const { data: reports, error, count } = await admin.from('random_chat_reports').select('id,session_id,reporter_id,reported_id,reason,detail,status,created_at', { count: 'exact' })
+        .eq('status', 'OPEN').order('created_at', { ascending: false }).range(page * 40, page * 40 + 39);
       if (error) return json({ error: 'Could not load Random Chat reports.' }, 503);
       const sessionIds = [...new Set((reports ?? []).map((row) => row.session_id))];
       const userIds = [...new Set((reports ?? []).flatMap((row) => [row.reporter_id, row.reported_id]))];
@@ -125,17 +136,19 @@ Deno.serve(async (request) => {
         list.push({ from: sender.name ?? 'Anonymous Ghost', body: row.body, created_at: row.created_at });
         chats.set(row.session_id, list);
       }
-      return json({ rows: (reports ?? []).map((row) => ({ ...row, id: row.id, reporter: names.get(row.reporter_id) ?? 'Unavailable', reported: names.get(row.reported_id) ?? 'Unavailable', messages: chats.get(row.session_id) ?? [] })) });
+      return json({ rows: (reports ?? []).map((row) => ({ ...row, id: row.id, reporter: names.get(row.reporter_id) ?? 'Unavailable', reported: names.get(row.reported_id) ?? 'Unavailable', messages: chats.get(row.session_id) ?? [] })), total: count ?? 0, pageSize: 40 });
     }
     if (action === 'invitations') {
-      const { data, error } = await admin.from('invitation_codes').select('id,status,created_at,claimed_at').order('created_at', { ascending: false }).limit(100);
+      const { data, error, count } = await admin.from('invitation_codes').select('id,status,created_at,claimed_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load invitation status.' }, 503);
-      return json({ rows: data ?? [] });
+      return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
     }
     if (action === 'audit') {
-      const { data, error } = await admin.from('admin_actions').select('id,admin_identity,action,target_type,target_id,reason,metadata,created_at').order('created_at', { ascending: false }).limit(100);
+      const { data, error, count } = await admin.from('admin_actions').select('id,admin_identity,action,target_type,target_id,reason,metadata,created_at', { count: 'exact' })
+        .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load the moderation log.' }, 503);
-      return json({ rows: data ?? [] });
+      return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
     }
     if (action === 'create-invitation') {
       const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -190,6 +203,33 @@ Deno.serve(async (request) => {
       if (error) return json({ error: 'Could not update this account role.' }, 503);
       await recordAction(role === 'ADMIN' ? 'ADMIN_PROMOTED_USER' : 'ADMIN_DEMOTED_USER', 'user', id, reason, { role });
       return json({ success: true });
+    }
+    if (action === 'set-user-password') {
+      const password = String(body.password ?? '');
+      const confirmPassword = String(body.confirmPassword ?? '');
+      if (password.length < 10 || password.length > 128) {
+        return json({ error: 'Choose a password between 10 and 128 characters.' }, 400);
+      }
+      if (password !== confirmPassword) {
+        return json({ error: 'Passwords do not match. Re-enter the same password in both fields.' }, 400);
+      }
+      const { data: target, error: targetError } = await admin.from('profiles').select('id,role').eq('id', id).maybeSingle();
+      if (targetError || !target) return json({ error: 'Account not found.' }, 404);
+      try {
+        await recordAction('ADMIN_PASSWORD_RESET_STARTED', 'user', id, reason, { role: target.role });
+      } catch {
+        return json({ error: 'Password was not changed because its audit entry could not be recorded.' }, 503);
+      }
+      const { error: passwordError } = await admin.auth.admin.updateUserById(id, { password });
+      if (passwordError) {
+        return json({ error: 'Password could not be changed. Choose a different 10+ character password and try again.' }, 400);
+      }
+      try {
+        await recordAction('ADMIN_PASSWORD_RESET_COMPLETED', 'user', id, reason, { role: target.role });
+        return json({ success: true });
+      } catch {
+        return json({ success: true, warning: 'Password changed, but the completion audit entry failed. The reset attempt is still recorded.' });
+      }
     }
     if (action === 'delete-user') {
       if (body.confirmation !== 'DELETE USER') return json({ error: 'Type DELETE USER to confirm permanent account deletion.' }, 400);

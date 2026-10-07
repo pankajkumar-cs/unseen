@@ -35,8 +35,8 @@ export interface CommentView {
 export interface FeedCursor { createdAt: string; publicId: string }
 export interface PostPage { posts: PostView[]; cursor: FeedCursor | null }
 
-function throwIfError(error: { message: string } | null) {
-  if (error) throw new Error(error.message);
+function throwIfError(error: unknown) {
+  if (error) throw error;
 }
 
 async function signedMedia(paths: Array<string | null>) {
@@ -87,6 +87,18 @@ export async function loadPostPage(category: PostCategory | null, cursor: FeedCu
     posts,
     cursor: last ? { createdAt: last.created_at, publicId: last.public_id } : null,
   };
+}
+
+export async function loadTopLikedPosts(limit = 3): Promise<PostView[]> {
+  const { data, error } = await requireSupabase().rpc('feed_posts_page', { p_limit: 50 });
+  throwIfError(error);
+  const rows = [...(data ?? [])]
+    .sort((left, right) => right.likes_count - left.likes_count
+      || Date.parse(right.created_at) - Date.parse(left.created_at)
+      || right.public_id.localeCompare(left.public_id))
+    .slice(0, Math.max(1, Math.min(limit, 10)));
+  const urls = await signedMedia(rows.map((row) => row.storage_path));
+  return rows.map((row) => toPostView(row, urls));
 }
 
 export async function getPostUsage() {
@@ -193,33 +205,60 @@ export interface UploadedMedia {
   file: File;
 }
 
+export const MAX_POST_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
+const MAX_POST_IMAGE_STORAGE_SIZE = 5 * 1024 * 1024;
+
 export async function compressImage(file: File): Promise<{ file: File; width: number; height: number }> {
   const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
   if (!allowed.has(file.type)) throw new Error('Choose a JPG, PNG, or WebP image.');
-  if (file.size > 5 * 1024 * 1024) throw new Error('Images must be 5 MB or smaller.');
+  if (file.size > MAX_POST_IMAGE_SOURCE_SIZE) throw new Error('Images must be 20 MB or smaller.');
   const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('This browser cannot prepare the selected image.');
-  context.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-  let blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Image preparation failed.')), 'image/webp', 0.82);
-  });
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) {
-    blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Image preparation failed.')), file.type, 0.82);
-    });
+  if (!context) {
+    bitmap.close();
+    throw new Error('This browser cannot prepare the selected image.');
   }
+
+  const encode = async (maxDimension: number, quality: number) => {
+    const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    canvas.width = width;
+    canvas.height = height;
+    context.drawImage(bitmap, 0, 0, width, height);
+    let blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Image preparation failed.')), 'image/webp', quality);
+    });
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) {
+      blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Image preparation failed.')), file.type, quality);
+      });
+    }
+    return { blob, width, height };
+  };
+
+  let prepared: Awaited<ReturnType<typeof encode>> | undefined;
+  try {
+    for (const [maxDimension, quality] of [
+      [1600, 0.82], [1600, 0.68], [1600, 0.54],
+      [1280, 0.68], [1280, 0.54], [1024, 0.54],
+    ] as const) {
+      const candidate = await encode(maxDimension, quality);
+      prepared = candidate;
+      if (candidate.blob.size <= MAX_POST_IMAGE_STORAGE_SIZE) break;
+    }
+  } finally {
+    bitmap.close();
+  }
+
+  if (!prepared || prepared.blob.size > MAX_POST_IMAGE_STORAGE_SIZE) {
+    throw new Error('This image could not be reduced enough to upload. Choose a smaller image.');
+  }
+  const { blob, width, height } = prepared;
   const mimeType = ['image/jpeg', 'image/png', 'image/webp'].includes(blob.type) ? blob.type : file.type;
   const extension = mimeType === 'image/webp' ? 'webp' : mimeType === 'image/png' ? 'png' : 'jpg';
   const compressed = new File([blob], `${file.name.replace(/\.[^.]+$/, '')}.${extension}`, { type: mimeType, lastModified: Date.now() });
-  if (compressed.size > 5 * 1024 * 1024) throw new Error('The prepared image is still too large. Choose a smaller image.');
   return { file: compressed, width, height };
 }
 
@@ -258,7 +297,7 @@ export async function uploadPostImage(file: File, session: Session, onProgress: 
   const client = requireSupabase();
   const prepared = await compressImage(file);
   onPreparing?.();
-  const ext = prepared.file.type === 'image/webp' ? 'webp' : 'jpg';
+  const ext = prepared.file.type === 'image/webp' ? 'webp' : prepared.file.type === 'image/png' ? 'png' : 'jpg';
   const storagePath = `${crypto.randomUUID()}/${crypto.randomUUID()}.${ext}`;
   await uploadWithProgress(storagePath, prepared.file, session, onProgress);
 

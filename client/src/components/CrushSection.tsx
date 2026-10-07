@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { getUserFacingError } from '../lib/errors';
+import { formatIndiaDate } from '../lib/dates';
 import { Heart, MapPin, Plus, Ship, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
@@ -17,7 +19,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
 
   const refresh = async () => {
     try { setItems(await loadCrushes()); }
-    catch (cause) { onToast(cause instanceof Error ? cause.message : 'Spotted posts could not load.', 'error'); }
+    catch (cause) { onToast(getUserFacingError(cause, 'Spotted posts could not load.'), 'error'); }
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
@@ -39,14 +41,14 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
       await refresh();
       setComposerOpen(false);
       onToast('Your spotted post is live.', 'success');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your spotted post could not be added.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your spotted post could not be added.'), 'error'); }
   };
 
   const react = async (item: CrushView, kind: 'ship' | 'blush') => {
     try {
       const result = await reactToCrush(item.id, kind);
       if (result) setItems((current) => current.map((row) => row.id === item.id ? { ...row, ships: result.ships, blushes: result.blushes } : row));
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your reaction could not be saved.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your reaction could not be saved.'), 'error'); }
   };
 
   return (
@@ -61,7 +63,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
         {!loading && !items.length && <div className="card relative mt-7 p-8 text-center"><div className="text-5xl">💘</div><h3 className="mt-3 font-grotesk font-bold">No spotted posts yet</h3><p className="mt-1 text-sm text-muted">Be the first to drop a kind, anonymous campus hint.</p></div>}
         {!loading && items.length > 0 && <div className="scrollbar-hide relative mt-7 flex snap-x gap-4 overflow-x-auto pb-2">
           {items.map((item) => <article key={item.id} className="card min-w-[280px] max-w-[340px] snap-start rounded-3xl border-soft p-5 backdrop-blur">
-            <div className="flex items-center justify-between"><span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#be185d,#6d28d9)' }}>💘 SPOTTED</span><time className="text-[11px] font-bold text-faint">{new Date(item.createdAt).toLocaleDateString()}</time></div>
+            <div className="flex items-center justify-between"><span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#be185d,#6d28d9)' }}>💘 SPOTTED</span><time dateTime={item.createdAt} className="text-[11px] font-bold text-faint">{formatIndiaDate(item.createdAt)}</time></div>
             <h3 className="mt-3 font-grotesk text-[15px] font-bold">To: {item.recipient}</h3>
             {item.location && <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-pink-50 px-2.5 py-1 text-[11px] font-bold text-pink-700"><MapPin size={12} />{item.location}</div>}
             {item.message && <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-muted">“{item.message}”</p>}

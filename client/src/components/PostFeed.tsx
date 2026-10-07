@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { getUserFacingError } from '../lib/errors';
+import { formatRelativeIndiaTime } from '../lib/dates';
 import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { useRealtime } from '../realtime/RealtimeContext';
+import { usePublishRealtime, useRealtime } from '../realtime/RealtimeContext';
 import { requireSupabase } from '../lib/supabase';
 import { createComment, deleteOwnPost, loadComments, loadPostPage, removeComment, submitReport, toggleBookmark, toggleLike, type CommentView, type FeedCursor, type PostView } from '../services/feed';
 import type { PostCategory } from '../types/database';
@@ -23,16 +25,6 @@ const MAX_FEED_ITEMS = 100;
 
 function isPostCategory(value: unknown): value is PostCategory {
   return typeof value === 'string' && categories.some((category) => category.value === value);
-}
-
-function relativeTime(value: string) {
-  const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000));
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d ago` : new Date(value).toLocaleDateString();
 }
 
 function postFromEvent(payload: Record<string, unknown>, imageUrl: string | null = null): PostView | null {
@@ -94,7 +86,7 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       setCursor(page.cursor);
       setHasMore(page.posts.length === 20);
     }).catch((cause: unknown) => {
-      if (requestId === generation.current) setError(cause instanceof Error ? cause.message : 'The campus feed could not load.');
+      if (requestId === generation.current) setError(getUserFacingError(cause, 'The campus feed could not load.'));
     }).finally(() => {
       if (requestId === generation.current) setLoading(false);
     });
@@ -116,7 +108,7 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       setCursor(page.cursor);
       setHasMore(page.posts.length === 20 && posts.length + page.posts.length < MAX_FEED_ITEMS);
     } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : 'More posts could not load.', 'error');
+      onToast(getUserFacingError(cause, 'More posts could not load.'), 'error');
     } finally {
       if (requestId === generation.current) setLoadingMore(false);
       loadingMoreRef.current = false;
@@ -247,6 +239,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   const [pending, setPending] = useState(false);
   const [imageBroken, setImageBroken] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'comment' | 'account'; id: string | null } | null>(null);
+  const publishRealtime = usePublishRealtime();
   const lock = useRef(false);
   const commentsLoaded = useRef(false);
 
@@ -255,7 +248,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
     commentsLoaded.current = true;
     setCommentsLoading(true);
     void loadComments(post.id).then(setComments).catch((cause: unknown) => {
-      onToast(cause instanceof Error ? cause.message : 'Comments could not load.', 'error');
+      onToast(getUserFacingError(cause, 'Comments could not load.'), 'error');
     }).finally(() => setCommentsLoading(false));
   }, [commentsOpen, comments.length, commentsLoading, post.id, onToast]);
 
@@ -294,9 +287,10 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
     try {
       const result = await toggleLike(post.id, liked);
       onPostUpdate(post.id, { liked: result.liked, likes: result.likes_count });
+      publishRealtime({ type: 'like:change', payload: { id: post.id, likes: result.likes_count } });
     } catch (cause) {
       onPostUpdate(post.id, { liked: post.liked, likes: post.likes });
-      onToast(cause instanceof Error ? cause.message : 'Your like could not be saved.', 'error');
+      onToast(getUserFacingError(cause, 'Your like could not be saved.'), 'error');
     } finally { lock.current = false; }
   };
 
@@ -306,7 +300,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
       const bookmarked = await toggleBookmark(profile.userId, post.id);
       onPostUpdate(post.id, { bookmarked });
       onToast(bookmarked ? 'Saved to your bookmarks.' : 'Removed from your bookmarks.', 'success');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Bookmark could not be saved.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Bookmark could not be saved.'), 'error'); }
   };
 
   const addComment = async (event: FormEvent<HTMLFormElement>) => {
@@ -320,14 +314,14 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
       setComments((current) => current.some((item) => item.id === comment.id) ? current : [...current, comment]);
       onPostUpdate(post.id, { commentsCount: post.commentsCount + 1 });
       setCommentText('');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your reply could not be posted.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your reply could not be posted.'), 'error'); }
     finally { setPending(false); }
   };
 
   const deletePost = async () => {
     if (!window.confirm('Remove this post from the campus feed?')) return;
     try { await deleteOwnPost(post.id); }
-    catch (cause) { onToast(cause instanceof Error ? cause.message : 'This post could not be removed.', 'error'); }
+    catch (cause) { onToast(getUserFacingError(cause, 'This post could not be removed.'), 'error'); }
   };
 
   const report = async (reason: string, detail: string) => {
@@ -336,7 +330,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
       await submitReport(post.id, reportTarget.type, reportTarget.id, reason, detail);
       onToast('Thanks. The moderation team will review this report.', 'success');
       setReportTarget(null);
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your report could not be sent.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your report could not be sent.'), 'error'); }
   };
 
   const share = async () => {
@@ -355,7 +349,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-bold">{post.authorName}</span>
             <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[9px] font-bold tracking-wider text-purple-700">CAMPUS GHOST</span>
-            <span className="text-[11px] font-semibold text-faint">{relativeTime(post.createdAt)}</span>
+            <span className="text-[11px] font-semibold text-faint">{formatRelativeIndiaTime(post.createdAt)}</span>
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] font-bold text-muted">
             <span className="rounded-full bg-soft px-2.5 py-1">{post.category}</span>
@@ -372,7 +366,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
 
       <div className="mt-4 flex items-center justify-between border-t border-soft pt-3">
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void changeLike()} aria-pressed={post.liked} className={`like-btn chip flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${post.liked ? 'liked' : ''}`}><Heart size={16} /> <span>{post.likes}</span><span className="hidden xs:inline">Like</span></button>
+          <button type="button" onClick={() => void changeLike()} aria-label={post.liked ? 'Unlike post' : 'Like post'} aria-pressed={post.liked} className="chip flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold"><Heart size={16} fill={post.liked ? 'currentColor' : 'none'} className={`transition-all duration-200 ${post.liked ? 'scale-110 text-rose-600' : 'text-muted'}`} /> <span>{post.likes}</span><span className="hidden xs:inline">Like</span></button>
           <button type="button" onClick={() => setCommentsOpen((open) => !open)} aria-expanded={commentsOpen} className="chip flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold"><MessageCircle size={16} /><span>{post.commentsCount}</span><span className="hidden xs:inline">Reply</span></button>
         </div>
         <div className="flex items-center gap-1">
@@ -389,12 +383,12 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
             {!commentsLoading && comments.map((comment) => <div key={comment.id} className="flex items-start gap-2.5">
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm" style={{ background: comment.mine ? profile?.color ?? '#EDE9FE' : '#EDE9FE' }}>{comment.authorEmoji}</span>
               <div className="min-w-0 flex-1 rounded-2xl bg-soft px-3.5 py-2.5">
-                <div className="flex items-center gap-2"><span className="text-xs font-bold">{comment.authorName}</span><time dateTime={comment.createdAt} className="text-[10px] text-faint">{relativeTime(comment.createdAt)}</time></div>
+                <div className="flex items-center gap-2"><span className="text-xs font-bold">{comment.authorName}</span><time dateTime={comment.createdAt} className="text-[10px] text-faint">{formatRelativeIndiaTime(comment.createdAt)}</time></div>
                 <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{comment.body}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <button type="button" onClick={() => setReportTarget({ type: 'comment', id: comment.id })} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Report reply"><Flag size={13} /></button>
-                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => setComments((current) => current.filter((item) => item.id !== comment.id))).catch((cause: unknown) => onToast(cause instanceof Error ? cause.message : 'Reply could not be removed.', 'error')); }} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={13} /></button>}
+                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => setComments((current) => current.filter((item) => item.id !== comment.id))).catch((cause: unknown) => onToast(getUserFacingError(cause, 'Reply could not be removed.'), 'error')); }} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={13} /></button>}
               </div>
             </div>)}
             {!commentsLoading && comments.length === 0 && <p className="py-3 text-center text-xs text-muted">No replies yet. Keep it kind and be the first.</p>}

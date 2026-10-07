@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { getUserFacingError } from '../lib/errors';
 import { ImagePlus, LoaderCircle, Send, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { createPost, discardPostImage, getPostUsage, uploadPostImage, type UploadedMedia } from '../services/feed';
+import { createPost, discardPostImage, getPostUsage, MAX_POST_IMAGE_SOURCE_SIZE, uploadPostImage, type UploadedMedia } from '../services/feed';
 import type { PostCategory } from '../types/database';
 
 const options: Array<{ value: PostCategory; emoji: string; description: string }> = [
@@ -36,13 +37,18 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
   const [uploadStage, setUploadStage] = useState<'preparing' | 'uploading' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usageError, setUsageError] = useState<string | null>(null);
 
   const previewUrl = useMemo(() => file ? URL.createObjectURL(file) : null, [file]);
   useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   useEffect(() => {
     if (!open || !profile?.isRegistered) return;
-    void getPostUsage().then((row) => setUsage(row?.remaining ?? null)).catch(() => setUsage(null));
+    setUsageError(null);
+    void getPostUsage().then((row) => setUsage(row?.remaining ?? null)).catch((cause: unknown) => {
+      setUsage(null);
+      setUsageError(getUserFacingError(cause, 'Could not check today’s posting limit. It will be checked when you submit your post.'));
+    });
   }, [open, profile?.isRegistered]);
 
   useEffect(() => {
@@ -58,7 +64,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
     setError(null);
     if (!next) { setFile(null); return; }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(next.type)) { setFile(null); setError('Choose a JPG, PNG, or WebP image.'); return; }
-    if (next.size > 5 * 1024 * 1024) { setFile(null); setError('Images must be 5 MB or smaller.'); return; }
+    if (next.size > MAX_POST_IMAGE_SOURCE_SIZE) { setFile(null); setError('Images must be 20 MB or smaller.'); return; }
     setFile(next);
   };
 
@@ -86,7 +92,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
       onToast('Your post is live on campus.', 'success');
     } catch (cause) {
       if (uploaded) await discardPostImage(uploaded).catch(() => undefined);
-      setError(cause instanceof Error ? cause.message : 'Your post could not be published. Please try again.');
+      setError(getUserFacingError(cause, 'Your post could not be published. Please try again.'));
     } finally {
       setBusy(false);
       setProgress(null);
@@ -123,8 +129,9 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
             <label className={`chip inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold ${busy ? 'pointer-events-none opacity-50' : ''}`}><ImagePlus size={16} /> Add image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} className="sr-only" onChange={(event) => changeFile(event.target.files?.[0] ?? null)} /></label>
             {usage !== null && <span className="text-xs font-semibold text-muted">{usage} of 5 posts left today</span>}
           </div>
-          <p className="text-[11px] leading-relaxed text-faint">Images are resized to fit a campus feed card and stored privately. Avoid faces, names, phone numbers, or personal information.</p>
+          <p className="text-[11px] leading-relaxed text-faint">Images up to 20 MB are resized for the campus feed and stored privately. Avoid faces, names, phone numbers, or personal information.</p>
           {error && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}
+          {usageError && <p role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{usageError}</p>}
           <button disabled={busy || !profile?.isRegistered || usage === 0} className="btn-primary flex w-full items-center justify-center gap-2 rounded-full px-5 py-3.5 font-bold disabled:cursor-not-allowed disabled:opacity-55">
             {busy ? <><LoaderCircle size={16} className="animate-spin" />{uploadStage === 'preparing' ? 'Preparing image…' : uploadStage === 'uploading' ? 'Uploading…' : 'Publishing…'}</> : <><Send size={15} /> Drop it on campus</>}
           </button>

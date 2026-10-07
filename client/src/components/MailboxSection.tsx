@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { getUserFacingError } from '../lib/errors';
+import { formatIndiaDateTime } from '../lib/dates';
 import { Inbox, LoaderCircle, MailPlus, Send, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { activeGhostProfiles, loadMailbox, openMailboxMessage, sendMailboxMessage, type MailboxView } from '../services/community';
@@ -19,7 +21,7 @@ export function MailboxSection({ onOpenAuth, onToast }: MailboxSectionProps) {
     if (!profile?.isRegistered) return;
     setLoading(true);
     try { setMessages(await loadMailbox()); }
-    catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your mailbox could not load.', 'error'); }
+    catch (cause) { onToast(getUserFacingError(cause, 'Your mailbox could not load.'), 'error'); }
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, [profile?.isRegistered]);
@@ -31,7 +33,7 @@ export function MailboxSection({ onOpenAuth, onToast }: MailboxSectionProps) {
       const opened = await openMailboxMessage(message.id);
       setMessages((current) => current.map((item) => item.id === message.id ? { ...item, sealed: false, body: opened.body } : item));
       onToast('Envelope unsealed.', 'success');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'This envelope could not be opened.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'This envelope could not be opened.'), 'error'); }
     finally { setOpeningId(null); }
   };
 
@@ -41,7 +43,7 @@ export function MailboxSection({ onOpenAuth, onToast }: MailboxSectionProps) {
       await refresh();
       setComposerOpen(false);
       onToast('Your secret note was sent.', 'success');
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : 'Your note could not be sent.', 'error'); }
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your note could not be sent.'), 'error'); }
   };
 
   return (
@@ -62,7 +64,7 @@ export function MailboxSection({ onOpenAuth, onToast }: MailboxSectionProps) {
           {profile?.isRegistered && loading && <div className="card flex items-center justify-center p-8 sm:col-span-2"><LoaderCircle size={21} className="animate-spin text-unseen-600" aria-label="Loading mailbox" /></div>}
           {profile?.isRegistered && !loading && messages.length === 0 && <div className="card flex flex-col items-center justify-center p-8 text-center sm:col-span-2"><div className="text-5xl">✉️</div><h3 className="mt-3 font-grotesk font-bold">Your mailbox is empty</h3><p className="mt-1 text-sm text-muted">Secret messages will appear here when another ghost sends one.</p></div>}
           {profile?.isRegistered && !loading && messages.map((message) => <button key={message.id} type="button" onClick={() => void open(message)} disabled={openingId === message.id} className={`envelope card relative overflow-hidden p-0 text-left transition ${message.sealed ? 'cursor-pointer' : 'cursor-default'} ${message.sealed ? '' : 'opened'}`}>
-            <div className="flex items-start gap-3 p-5 pb-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl" style={{ background: message.color, animation: message.sealed ? 'envelopeBob 3s ease-in-out infinite' : undefined }}>{message.sealed ? '✉️' : message.emoji}</span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-[13px] font-bold">{message.sealed ? 'Sealed Envelope' : message.sent ? 'Sent note' : message.sender}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${message.sealed ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{message.sealed ? '🔒 SEALED' : 'OPENED'}</span></span><time dateTime={message.createdAt} className="mt-0.5 block text-[11px] font-bold text-faint">{new Date(message.createdAt).toLocaleString()}</time></span></div>
+            <div className="flex items-start gap-3 p-5 pb-4"><span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-2xl" style={{ background: message.color, animation: message.sealed ? 'envelopeBob 3s ease-in-out infinite' : undefined }}>{message.sealed ? '✉️' : message.emoji}</span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><span className="truncate text-[13px] font-bold">{message.sealed ? 'Sealed Envelope' : message.sent ? 'Sent note' : message.sender}</span><span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${message.sealed ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>{message.sealed ? '🔒 SEALED' : 'OPENED'}</span></span><time dateTime={message.createdAt} className="mt-0.5 block text-[11px] font-bold text-faint">{formatIndiaDateTime(message.createdAt)}</time></span></div>
             <span className={`mx-5 mb-5 block rounded-2xl border border-dashed border-soft2 bg-soft p-3.5 text-[13px] font-medium ${message.sealed ? 'blur-[3px] select-none' : ''}`}>{message.sealed ? `${message.preview} 🔒 Tap to unseal…` : message.body}</span>
             {message.sealed && <span className="-mt-2 block px-5 pb-4 text-[11px] font-bold text-unseen-600">Tap to unseal →</span>}
             {openingId === message.id && <span className="absolute inset-0 flex items-center justify-center bg-white/70"><LoaderCircle size={20} className="animate-spin text-unseen-600" /></span>}
@@ -82,7 +84,7 @@ function MailboxComposer({ onClose, onSend }: { onClose: () => void; onSend: (gh
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    void activeGhostProfiles().then((rows) => setRecipients(rows.filter((row) => row.ghost_id).map((row) => ({ ghost_id: row.ghost_id, display_name: row.display_name, emoji: row.emoji })))).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : 'Campus ghosts could not load.')).finally(() => setLoading(false));
+    void activeGhostProfiles().then((rows) => setRecipients(rows.filter((row) => row.ghost_id).map((row) => ({ ghost_id: row.ghost_id, display_name: row.display_name, emoji: row.emoji })))).catch((cause: unknown) => setError(getUserFacingError(cause, 'Campus ghosts could not load.'))).finally(() => setLoading(false));
   }, []);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
