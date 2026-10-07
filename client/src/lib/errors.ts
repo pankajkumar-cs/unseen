@@ -100,6 +100,7 @@ export function getUserFacingError(error: unknown, fallback: string): string {
 
   // Avoid showing raw server internals while keeping useful validation messages.
   if (!message || /\b(sql|postgres|postgrest|supabase|jwt|stack trace|constraint|schema cache)\b/i.test(message)
+    || /column reference .* is ambiguous/i.test(message)
     || /could not find the .* function|function .* does not exist|relation .* does not exist|column .* does not exist|cannot read properties|is not a function/i.test(message)
     || /^(?:type|reference|syntax)error:/i.test(message)) return fallback;
   return message;

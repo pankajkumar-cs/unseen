@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { getUserFacingError } from '../lib/errors';
 import { formatRelativeIndiaTime } from '../lib/dates';
-import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2 } from 'lucide-react';
+import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { usePublishRealtime, useRealtime } from '../realtime/RealtimeContext';
 import { requireSupabase } from '../lib/supabase';
@@ -238,10 +238,25 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   const [commentText, setCommentText] = useState('');
   const [pending, setPending] = useState(false);
   const [imageBroken, setImageBroken] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'comment' | 'account'; id: string | null } | null>(null);
   const publishRealtime = usePublishRealtime();
   const lock = useRef(false);
   const commentsLoaded = useRef(false);
+
+  useEffect(() => {
+    if (!imageOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setImageOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [imageOpen]);
 
   useEffect(() => {
     if (!commentsOpen || commentsLoaded.current || commentsLoading) return;
@@ -361,8 +376,17 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
       </div>
 
       <p className="mt-4 whitespace-pre-wrap break-words text-[14px] font-medium leading-relaxed">{post.body}</p>
-      {post.imagePath && !imageBroken && post.imageUrl && <img src={post.imageUrl} alt="Image shared anonymously by a campus ghost" width={post.imageWidth ?? undefined} height={post.imageHeight ?? undefined} loading="lazy" decoding="async" sizes="(min-width: 1100px) 33vw, (min-width: 640px) 50vw, 100vw" className="feed-post-image mt-4" onError={() => setImageBroken(true)} />}
+      {post.imagePath && !imageBroken && post.imageUrl && <button type="button" onClick={() => setImageOpen(true)} aria-label="Open post image full screen" className="mt-4 block w-full cursor-zoom-in overflow-hidden rounded-2xl bg-transparent p-0 text-left">
+        <img src={post.imageUrl} alt="Image shared anonymously by a campus ghost. Open full screen." width={post.imageWidth ?? undefined} height={post.imageHeight ?? undefined} loading="lazy" decoding="async" sizes="(min-width: 1100px) 33vw, (min-width: 640px) 50vw, 100vw" className="feed-post-image" onError={() => setImageBroken(true)} />
+      </button>}
       {post.imagePath && imageBroken && <div className="post-image-fallback"><ImageOff size={14} className="mr-2" /> This image is no longer available.</div>}
+
+      {imageOpen && post.imageUrl && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/95 p-3 pt-16 sm:p-6 sm:pt-16" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setImageOpen(false); }}>
+        <section role="dialog" aria-modal="true" aria-label="Full-screen post image" className="relative flex h-full w-full items-center justify-center">
+          <button type="button" onClick={() => setImageOpen(false)} aria-label="Close full-screen image" className="absolute right-1 top-1 z-[1] flex h-11 w-11 items-center justify-center rounded-full bg-white/95 text-gray-900 shadow-lg sm:right-0 sm:top-0"><X size={22} /></button>
+          <img src={post.imageUrl} alt="Full-screen image shared anonymously by a campus ghost" className="max-h-full max-w-full object-contain" />
+        </section>
+      </div>}
 
       <div className="mt-4 flex items-center justify-between border-t border-soft pt-3">
         <div className="flex items-center gap-2">

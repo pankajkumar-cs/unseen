@@ -21,7 +21,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
   const [swiping, setSwiping] = useState<SwipeDirection | null>(null);
   const [dragOffset, setDragOffset] = useState(0);
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
-  const pointerStart = useRef<number | null>(null);
+  const pointerStart = useRef<{ x: number; y: number; axis: 'horizontal' | 'vertical' | null } | null>(null);
   const swipeLock = useRef(false);
 
   const loadMemes = useCallback(async (reset = false) => {
@@ -119,15 +119,34 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
                 key={meme.id}
                 className={`meme-card card overflow-hidden ${offset === 0 && swiping ? `meme-swipe-${swiping}` : ''}`}
                 style={{ zIndex: 10 - offset, transform: offset ? `translateY(${offset * 14}px) scale(${1 - offset * 0.05})` : dragOffset ? `translate(${dragOffset}px, ${Math.abs(dragOffset) * 0.08}px) rotate(${dragOffset * 0.06}deg)` : undefined, opacity: offset ? 1 - offset * 0.25 : undefined }}
-                onPointerDown={(event) => { if (offset === 0) { pointerStart.current = event.clientX; event.currentTarget.setPointerCapture(event.pointerId); } }}
-                onPointerMove={(event) => { if (offset === 0 && pointerStart.current !== null) setDragOffset(event.clientX - pointerStart.current); }}
+                onPointerDown={(event) => {
+                  if (offset === 0 && event.isPrimary && event.button === 0) {
+                    pointerStart.current = { x: event.clientX, y: event.clientY, axis: null };
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                  }
+                }}
+                onPointerMove={(event) => {
+                  const start = pointerStart.current;
+                  if (offset !== 0 || !start) return;
+                  const deltaX = event.clientX - start.x;
+                  const deltaY = event.clientY - start.y;
+                  if (!start.axis && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 8) {
+                    start.axis = Math.abs(deltaX) > Math.abs(deltaY) ? 'horizontal' : 'vertical';
+                  }
+                  setDragOffset(start.axis === 'horizontal' ? deltaX : 0);
+                }}
                 onPointerUp={(event) => {
-                  if (offset !== 0 || pointerStart.current === null) return;
-                  const delta = event.clientX - pointerStart.current;
+                  const start = pointerStart.current;
+                  if (offset !== 0 || !start) return;
+                  const deltaX = event.clientX - start.x;
+                  const deltaY = event.clientY - start.y;
                   pointerStart.current = null;
                   setDragOffset(0);
                   if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-                  if (delta > 110) advance('right'); else if (delta < -110) advance('left');
+                  const horizontalSwipe = start.axis === 'horizontal'
+                    || (!start.axis && Math.abs(deltaX) > 110 && Math.abs(deltaX) > Math.abs(deltaY));
+                  if (!horizontalSwipe) return;
+                  if (deltaX > 110) advance('right'); else if (deltaX < -110) advance('left');
                 }}
                 onPointerCancel={(event) => { pointerStart.current = null; setDragOffset(0); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
               >

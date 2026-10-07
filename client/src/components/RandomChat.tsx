@@ -158,7 +158,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
     } catch (cause) {
       if (pendingMessageRef.current !== pending) return;
       const code = object(cause)?.code;
-      const isPermanent = typeof code === 'string' && ['22023', '42501', 'P0002', '23514', 'PGRST202'].includes(code);
+      const isPermanent = typeof code === 'string' && ['22023', '42501', 'P0001', 'P0002', '23514', 'PGRST202'].includes(code);
       if (isPermanent) {
         if (code === 'P0002') {
           clearMatchRef.current();
