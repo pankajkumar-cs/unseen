@@ -21,6 +21,14 @@ const reasons = ['Harassment', 'Bullying', 'Threat', 'Sexual/explicit content', 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
+function isRealtimeAuthorizationError(error: unknown): boolean {
+  const row = object(error);
+  const details = [row?.name, row?.message, row?.cause, error instanceof Error ? error.message : error]
+    .map((value) => typeof value === 'string' ? value : '')
+    .join(' ')
+    .toLowerCase();
+  return /unauthori[sz]ed|permission|forbidden|\brls\b|policy|status\s*403/.test(details);
+}
 function ghost(value: unknown): GhostProfile {
   const row = object(value);
   return { name: typeof row?.name === 'string' ? row.name : 'Anonymous Ghost', emoji: typeof row?.emoji === 'string' ? row.emoji : '👻', color: typeof row?.color === 'string' ? row.color : '#EDE9FE' };
@@ -43,6 +51,15 @@ function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMes
   return [...unique.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)).slice(-100);
 }
 function rpcError(error: unknown) { if (error) throw error; }
+function withTimeout<T>(operation: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    operation.then(
+      (value) => { window.clearTimeout(timer); resolve(value); },
+      (error) => { window.clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
   const { profile, session } = useAuth();
@@ -59,6 +76,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
   const [personalInfoWarning, setPersonalInfoWarning] = useState(false);
   const [chatReady, setChatReady] = useState(false);
   const [peerConnected, setPeerConnected] = useState(false);
+  const [chatConnectionIssue, setChatConnectionIssue] = useState(false);
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const [pendingSendStatus, setPendingSendStatus] = useState<'sending' | 'retrying' | 'failed' | null>(null);
   const myId = session?.user.id ?? '';
@@ -74,7 +92,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
   const reconnectAttemptsRef = useRef(0);
   const clearMatchRef = useRef<() => void>(() => {});
   const pendingMessageRef = useRef<PendingChatMessage | null>(null);
-  const pendingSendInFlightRef = useRef(false);
+  const pendingSendInFlightRef = useRef<PendingChatMessage | null>(null);
   const pendingRetryTimerRef = useRef<number | null>(null);
   const pendingRetryAttemptsRef = useRef(0);
   const flushPendingMessageRef = useRef<() => void>(() => {});
@@ -110,14 +128,14 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
     }
 
     clearPendingRetry();
-    pendingSendInFlightRef.current = true;
+    pendingSendInFlightRef.current = pending;
     setPendingSendStatus(pendingRetryAttemptsRef.current ? 'retrying' : 'sending');
     try {
-      const { data, error } = await requireSupabase().rpc('random_chat_send', {
+      const { data, error } = await withTimeout(requireSupabase().rpc('random_chat_send', {
         p_session_key: pending.sessionKey,
         p_body: pending.body,
         p_client_message_id: pending.clientMessageId,
-      });
+      }), 8_000, 'The message service did not respond. Your message is still on this device.');
       rpcError(error);
       const sent = messageFrom(data?.[0], myId);
       const ticket = data?.[0]?.broadcast_ticket;
@@ -140,13 +158,11 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
           created_at: sent.createdAt,
         },
       } as const;
-      let sendStatus = 'error';
-      for (let attempt = 0; attempt < 3 && sendStatus !== 'ok'; attempt += 1) {
-        if (attempt > 0) await new Promise((resolve) => window.setTimeout(resolve, attempt * 500));
-        if (pendingMessageRef.current !== pending || sessionRef.current !== pending.sessionKey) return;
-        if (channel !== chatChannelRef.current || channel.state !== 'joined') break;
-        try { sendStatus = await channel.send(broadcast); } catch { sendStatus = 'error'; }
-      }
+      if (pendingMessageRef.current !== pending || sessionRef.current !== pending.sessionKey) return;
+      const sendStatus = channel === chatChannelRef.current && channel.state === 'joined'
+        ? await withTimeout(channel.send(broadcast), 8_000, 'The chat did not confirm message delivery.')
+          .catch(() => 'error' as const)
+        : 'error';
       if (sendStatus !== 'ok') throw new Error('The message could not be confirmed yet. It will retry while this chat stays open.');
       if (pendingMessageRef.current !== pending) return;
       setMessages((current) => mergeMessages(current, [{ ...sent, delivery: 'sent' }]));
@@ -171,14 +187,14 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
         setPendingSendStatus(null);
         pendingRetryAttemptsRef.current = 0;
         onToast(getUserFacingError(cause, 'Message could not be sent.'), 'error');
-      } else if (pendingRetryAttemptsRef.current >= 5) {
+      } else if (pendingRetryAttemptsRef.current >= 1) {
         setPendingSendStatus('failed');
         onToast(getUserFacingError(cause, 'Message delivery is delayed. Retry when your connection is back.'), 'error');
       } else {
         schedulePendingRetry();
       }
     } finally {
-      pendingSendInFlightRef.current = false;
+      if (pendingSendInFlightRef.current === pending) pendingSendInFlightRef.current = null;
     }
   };
   flushPendingMessageRef.current = () => { void flushPendingMessage(); };
@@ -198,6 +214,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
     chatChannelKeyRef.current = key;
     setChatReady(false);
     setPeerConnected(false);
+    setChatConnectionIssue(false);
     const client = requireSupabase();
     const channel = client.channel(`random-chat:${key}`, { config: { private: true, broadcast: { ack: true }, presence: { key: myId } } });
     let sawPeer = false;
@@ -266,12 +283,13 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
       if (/(?:\b\d{10,}\b|@[A-Z0-9._%+-]+\.[A-Z]{2,}|(?:instagram|snapchat|phone|number)\s*[:=])/i.test(incoming.body)) setPersonalInfoWarning(true);
     });
     chatChannelRef.current = channel;
-    channel.subscribe((status) => {
+    channel.subscribe((status, error) => {
       if (chatChannelKeyRef.current !== key || chatChannelRef.current !== channel) return;
       if (status === 'SUBSCRIBED') {
         if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
         reconnectAttemptsRef.current = 0;
+        setChatConnectionIssue(false);
         setChatReady(true);
         setPeerConnected(false);
         void channel.track({ user_id: myId }).then((result) => {
@@ -281,9 +299,18 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
         evaluatePresence();
       }
       else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        scheduleReconnect();
         if (presenceTimeoutRef.current !== null) window.clearTimeout(presenceTimeoutRef.current);
         presenceTimeoutRef.current = null;
+        if (isRealtimeAuthorizationError(error)) {
+          setChatReady(false);
+          setPeerConnected(false);
+          setChatConnectionIssue(true);
+          chatChannelRef.current = null;
+          chatChannelKeyRef.current = null;
+          void client.removeChannel(channel).catch(() => undefined);
+          return;
+        }
+        scheduleReconnect();
       }
     });
   };
@@ -299,6 +326,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
       setPersonalInfoWarning(false);
       clearPendingRetry();
       pendingMessageRef.current = null;
+      pendingSendInFlightRef.current = null;
       pendingRetryAttemptsRef.current = 0;
       setPendingMessageId(null);
       setPendingSendStatus(null);
@@ -315,12 +343,14 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
     setDraft('');
     clearPendingRetry();
     pendingMessageRef.current = null;
+    pendingSendInFlightRef.current = null;
     pendingRetryAttemptsRef.current = 0;
     setPendingMessageId(null);
     setPendingSendStatus(null);
     setPersonalInfoWarning(false);
     setChatReady(false);
     setPeerConnected(false);
+    setChatConnectionIssue(false);
     if (presenceTimeoutRef.current !== null) window.clearTimeout(presenceTimeoutRef.current);
     presenceTimeoutRef.current = null;
     if (reconnectTimerRef.current !== null) window.clearTimeout(reconnectTimerRef.current);
@@ -334,7 +364,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
   const restoreCurrent = async (isActive: () => boolean = () => true) => {
     const requestGeneration = searchGenerationRef.current;
     const client = requireSupabase();
-    const { data, error } = await client.rpc('random_chat_current');
+    const { data, error } = await withTimeout(client.rpc('random_chat_current'), 8_000, 'Random Chat status check timed out.');
     rpcError(error);
     if (!isActive() || requestGeneration !== searchGenerationRef.current) {
       return 'stale';
@@ -403,6 +433,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
       if (pendingRetryTimerRef.current !== null) window.clearTimeout(pendingRetryTimerRef.current);
       pendingRetryTimerRef.current = null;
       pendingMessageRef.current = null;
+      pendingSendInFlightRef.current = null;
     };
   }, [profile?.isRegistered, session?.user.id]);
 
@@ -414,7 +445,7 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
       syncInFlight.current = true;
       const previousSession = sessionRef.current;
       try {
-        if (busyRef.current || startInFlight.current) return;
+        if (startInFlight.current || (busyRef.current && mode !== 'matched')) return;
         const state = await restoreCurrent(() => active);
         if (!active || state === 'stale') return;
         if (previousSession && state !== 'matched') onToast('This chat has ended.', 'info');
@@ -572,12 +603,13 @@ export function RandomChat({ onClose, onOpenAuth, onToast }: RandomChatProps) {
             <div className="flex-1 overflow-y-auto p-4 sm:p-6" aria-live="polite">
               {(mode === 'loading' || mode === 'searching') && <div className="flex h-72 flex-col items-center justify-center text-center"><span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-purple-100 text-unseen-700">{mode === 'loading' ? <LoaderCircle size={25} className="animate-spin" /> : <Sparkles size={25} className="animate-pulse" />}</span><h3 className="mt-4 font-grotesk text-xl font-bold">{mode === 'loading' ? 'Restoring your campus connection…' : 'Finding a campus ghost…'}</h3><p className="mt-2 max-w-sm text-sm text-muted">{mode === 'searching' ? 'We will match you as soon as another campus ghost is ready.' : 'Your public identity remains anonymous.'}</p>{mode === 'searching' && <button type="button" disabled={busy} onClick={() => void cancelSearch()} className="chip mt-5 rounded-full px-5 py-2.5 text-sm font-bold">Cancel search</button>}</div>}
               {mode === 'idle' && <div className="flex h-72 flex-col items-center justify-center text-center"><span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-purple-100 text-unseen-700"><CircleHelp size={25} /></span><h3 className="mt-4 font-grotesk text-xl font-bold">A fresh conversation, no introductions.</h3><p className="mt-2 max-w-sm text-sm leading-relaxed text-muted">Get paired with another available campus ghost. Do not share your name, number, address, or social handle.</p><button type="button" disabled={busy} onClick={() => void start()} className="btn-primary mt-5 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-bold"><Sparkles size={16} /> Find someone</button></div>}
-              {mode === 'matched' && partner && <><div className="mb-5 flex items-center justify-between rounded-2xl border border-soft bg-card p-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: partner.color }}>{partner.emoji}</span><div><p className="truncate text-sm font-bold">{partner.name}</p><p className={`text-[11px] font-medium ${chatReady && peerConnected ? 'text-emerald-700' : 'text-amber-700'}`}>Anonymous campus ghost · {chatReady ? peerConnected ? 'Connected' : 'Waiting for the other ghost…' : 'Reconnecting…'}</p></div></div><div className="flex gap-2"><button type="button" disabled={busy} onClick={() => void nextChat()} title="Next ghost" className="chip rounded-full px-3 py-2 text-xs font-bold">Next</button><button type="button" disabled={busy} onClick={() => void finish('block')} title="Block this ghost" className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700"><Ban size={15} /><span className="sr-only">Block</span></button><button type="button" disabled={busy} onClick={() => void finish('end')} title="End chat" className="chip rounded-full px-3 py-2 text-xs font-bold">End</button></div></div>
+              {mode === 'matched' && partner && <><div className="mb-5 flex items-center justify-between rounded-2xl border border-soft bg-card p-3"><div className="flex min-w-0 items-center gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: partner.color }}>{partner.emoji}</span><div><p className="truncate text-sm font-bold">{partner.name}</p><p className={`text-[11px] font-medium ${chatReady && peerConnected ? 'text-emerald-700' : chatConnectionIssue ? 'text-rose-700' : 'text-amber-700'}`}>Anonymous campus ghost · {chatConnectionIssue ? 'Server permissions need an update' : chatReady ? peerConnected ? 'Connected' : 'Waiting for the other ghost…' : 'Reconnecting…'}</p></div></div><div className="flex gap-2"><button type="button" disabled={busy} onClick={() => void nextChat()} title="Next ghost" className="chip rounded-full px-3 py-2 text-xs font-bold">Next</button><button type="button" disabled={busy} onClick={() => void finish('block')} title="Block this ghost" className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700"><Ban size={15} /><span className="sr-only">Block</span></button><button type="button" disabled={busy} onClick={() => void finish('end')} title="End chat" className="chip rounded-full px-3 py-2 text-xs font-bold">End</button></div></div>
                 {personalInfoWarning && <div className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900"><ShieldAlert size={16} className="mt-0.5 shrink-0" />Keep private details out of chat. Never share your phone number, address, real name, or social account.</div>}
-                <div className="space-y-3">{messages.map((message, index) => <div key={message.clientMessageId ?? `${message.createdAt}:${message.senderId}:${index}`} className={`flex ${message.mine ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.mine ? 'rounded-br-md bg-purple-700 text-white' : 'rounded-bl-md border border-soft bg-card text-primary'}`}><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.body}</p><time className={`mt-1 block text-right text-[10px] ${message.mine ? 'text-purple-100' : 'text-faint'}`}>{message.mine && message.delivery === 'sending' ? 'Sending…' : formatIndiaTime(message.createdAt)}</time></div></div>)}{!messages.length && <p className="py-8 text-center text-xs font-medium text-muted">You are connected. Say hello 👋</p>}</div>
+                {chatConnectionIssue && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-medium text-rose-800"><span>Random Chat needs a server permission update before it can connect.</span><button type="button" disabled={busy} onClick={() => { if (!sessionKey) return; reconnectAttemptsRef.current = 0; connectToChat(sessionKey); }} className="shrink-0 font-bold text-rose-900">Retry</button></div>}
+                <div className="space-y-3">{messages.map((message, index) => <div key={message.clientMessageId ?? `${message.createdAt}:${message.senderId}:${index}`} className={`flex ${message.mine ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[86%] rounded-2xl px-4 py-3 ${message.mine ? 'rounded-br-md bg-purple-700 text-white' : 'rounded-bl-md border border-soft bg-card text-primary'}`}><p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{message.body}</p><time className={`mt-1 block text-right text-[10px] ${message.mine ? 'text-purple-100' : 'text-faint'}`}>{message.mine && message.delivery === 'sending' ? 'Sending…' : formatIndiaTime(message.createdAt)}</time></div></div>)}{!messages.length && <p className="py-8 text-center text-xs font-medium text-muted">{chatConnectionIssue ? 'Chat is unavailable until server permissions are updated.' : !chatReady ? 'Reconnecting…' : peerConnected ? 'Connected. Say hello 👋' : 'Waiting for the other ghost…'}</p>}</div>
                 </>}
             </div>
-            {mode === 'matched' && <div className="border-t border-soft bg-card p-3 sm:p-4"><form onSubmit={(event) => void send(event)} className="flex gap-2"><label className="sr-only" htmlFor="random-chat-message">Message</label><input id="random-chat-message" maxLength={500} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy || !!pendingMessageId || !chatReady || !peerConnected} className="input-themed min-w-0 flex-1 rounded-full px-4 py-3 text-sm" placeholder={!chatReady ? 'Reconnecting…' : pendingMessageId ? 'Sending your message…' : peerConnected ? 'Write a message…' : 'Waiting for the other ghost…'} /><button type="submit" disabled={busy || !!pendingMessageId || !chatReady || !peerConnected || !draft.trim()} className="btn-primary flex h-12 w-12 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send message"><Send size={17} /></button></form>{pendingSendStatus && <div className="mt-2 flex items-center justify-between gap-3 text-[11px] font-medium text-amber-800"><span>{pendingSendStatus === 'failed' ? 'Message is still on this device and has not been confirmed.' : pendingSendStatus === 'retrying' ? 'Reconnecting to deliver your message…' : 'Sending message…'}</span>{pendingSendStatus === 'failed' && <button type="button" disabled={busy} onClick={() => { pendingRetryAttemptsRef.current = 0; setPendingSendStatus('sending'); flushPendingMessageRef.current(); }} className="shrink-0 font-bold text-unseen-700">Retry</button>}</div>}<div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-medium text-muted"><span>Messages stay in this tab only and clear on refresh or disconnect.</span><button type="button" disabled={busy} onClick={() => setReportOpen(true)} className="inline-flex shrink-0 items-center gap-1 font-bold text-rose-700"><ShieldAlert size={13} /> Report</button></div></div>}
+            {mode === 'matched' && <div className="border-t border-soft bg-card p-3 sm:p-4"><form onSubmit={(event) => void send(event)} className="flex gap-2"><label className="sr-only" htmlFor="random-chat-message">Message</label><input id="random-chat-message" maxLength={500} value={draft} onChange={(event) => setDraft(event.target.value)} disabled={busy || !!pendingMessageId || !chatReady || !peerConnected} className="input-themed min-w-0 flex-1 rounded-full px-4 py-3 text-sm" placeholder={chatConnectionIssue ? 'Chat server permissions need an update' : !chatReady ? 'Reconnecting…' : pendingMessageId ? 'Sending your message…' : peerConnected ? 'Write a message…' : 'Waiting for the other ghost…'} /><button type="submit" disabled={busy || !!pendingMessageId || !chatReady || !peerConnected || !draft.trim()} className="btn-primary flex h-12 w-12 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send message"><Send size={17} /></button></form>{pendingSendStatus && <div className="mt-2 flex items-center justify-between gap-3 text-[11px] font-medium text-amber-800"><span>{pendingSendStatus === 'failed' ? 'Message is still on this device and has not been confirmed.' : pendingSendStatus === 'retrying' ? 'Reconnecting to deliver your message…' : 'Sending message…'}</span>{pendingSendStatus === 'failed' && <button type="button" disabled={busy} onClick={() => { pendingRetryAttemptsRef.current = 0; setPendingSendStatus('sending'); flushPendingMessageRef.current(); }} className="shrink-0 font-bold text-unseen-700">Retry</button>}</div>}<div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-medium text-muted"><span>Messages stay in this tab only and clear on refresh or disconnect.</span><button type="button" disabled={busy} onClick={() => setReportOpen(true)} className="inline-flex shrink-0 items-center gap-1 font-bold text-rose-700"><ShieldAlert size={13} /> Report</button></div></div>}
           </div>
         </>}
         <footer className="flex items-center justify-center gap-2 border-t border-soft px-4 py-3 text-[10px] font-medium text-muted"><Ban size={13} /> Be respectful. Block and report tools are available in every conversation.</footer>
