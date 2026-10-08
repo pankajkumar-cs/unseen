@@ -10,7 +10,6 @@ const options: Array<{ value: PostCategory; emoji: string; description: string }
   { value: 'Rants', emoji: '🌩️', description: 'Let it out. Keep it about the situation, never a person’s private details.' },
   { value: 'Spotted', emoji: '👀', description: 'A kind campus moment or harmless shout-out.' },
   { value: 'Memes', emoji: '😂', description: 'Bring the campus laugh track.' },
-  { value: 'Placements', emoji: '🎓', description: 'Share a placement win, lead, or useful update.' },
 ];
 
 interface PostComposerProps {

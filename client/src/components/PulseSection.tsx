@@ -59,7 +59,7 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
     { name: 'Rants', emoji: '🌩️', value: stats?.rants ?? 0, colors: ['#B91C1C', '#9F1239'], labelColor: 'var(--pulse-rose-label)', background: 'var(--pulse-rose-surface)', description: 'Vent safely. Keep it respectful.' },
     { name: 'Spotted', emoji: '👀', value: stats?.spotted ?? 0, colors: ['#0369A1', '#075985'], labelColor: 'var(--pulse-sky-label)', background: 'var(--pulse-sky-surface)', description: 'Campus moments and harmless hints.' },
   ];
-  const recentEmoji: Record<string, string> = { Confessions: '💜', Memes: '😂', Rants: '🌩️', Spotted: '👀', Placements: '🎓' };
+  const recentEmoji: Record<string, string> = { Confessions: '💜', Memes: '😂', Rants: '🌩️', Spotted: '👀' };
 
   return (
     <section id="pulse" className="mx-auto max-w-7xl px-4 pb-6 pt-14 sm:px-6">

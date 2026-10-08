@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Compass, Home, Plus, RotateCw, ShieldCheck, UserRound } from 'lucide-react';
+import { Compass, Home, Laugh, Plus, RotateCw, ShieldCheck, UserRound } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { CrushSection } from '../components/CrushSection';
 import { Navbar } from '../components/Navbar';
@@ -120,7 +120,7 @@ export function App() {
           <Footer onOpenAdmin={() => setAdminOpen(true)} showAdmin={profile?.role === 'ADMIN'} />
         </main>
 
-        <MobileNav onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })} onExplore={() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' })} onCreate={() => setComposerOpen(true)} onProfile={() => profile?.isRegistered ? setProfileOpen(true) : setAuthMode('login')} />
+        <MobileNav onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })} onExplore={() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' })} onMemes={() => document.getElementById('memes')?.scrollIntoView({ behavior: 'smooth' })} onCreate={() => setComposerOpen(true)} onProfile={() => profile?.isRegistered ? setProfileOpen(true) : setAuthMode('login')} />
 
         {error && <div role="status" className="mobile-overlay-offset fixed left-4 right-4 z-[65] mx-auto max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900 shadow-lg"><div className="flex flex-wrap items-center justify-between gap-3"><span className="flex min-w-0 flex-1 items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0" />Some account features may be unavailable: {error}</span><button type="button" onClick={() => void retryConnection()} disabled={retrying} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full bg-amber-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"><RotateCw size={14} className={retrying ? 'animate-spin' : ''} />{retrying ? 'Retrying…' : 'Try again'}</button></div></div>}
         <div className="mobile-overlay-offset fixed right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 lg:right-6" aria-live="polite">{toasts.map((item) => <div key={item.id} className={`toast rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg ${item.kind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : item.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-soft bg-card text-primary'}`}>{item.text}</div>)}</div>
@@ -182,23 +182,39 @@ function Preloader() {
   return <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-gradient-to-br from-[var(--bg)] to-[var(--bg2)]"><div className="relative"><div className="flex h-24 w-24 items-center justify-center rounded-[28px] bg-gradient-to-br from-purple-600 to-indigo-700 text-5xl shadow-xl">👁️</div><div className="absolute -inset-3 animate-spin rounded-[32px] border-2 border-dashed border-purple-300" style={{ animationDuration: '8s' }} /></div><h1 className="mt-6 font-grotesk text-3xl font-bold tracking-tight">UNSEEN</h1><p className="mt-1 text-sm font-medium tracking-widest text-muted">DUMKA ENGINEERING COLLEGE</p><div className="mt-6 flex gap-2"><span className="h-2 w-2 animate-bounce rounded-full bg-purple-500" /><span className="h-2 w-2 animate-bounce rounded-full bg-purple-400" style={{ animationDelay: '.15s' }} /><span className="h-2 w-2 animate-bounce rounded-full bg-pink-400" style={{ animationDelay: '.3s' }} /></div><p className="mt-4 text-xs font-medium text-faint">Jo campus mein nahi bol paate, yahan bol do…</p></div>;
 }
 
-function MobileNav({ onHome, onExplore, onCreate, onProfile }: { onHome: () => void; onExplore: () => void; onCreate: () => void; onProfile: () => void }) {
-  const [activeDestination, setActiveDestination] = useState<'home' | 'explore'>('home');
+function MobileNav({ onHome, onExplore, onMemes, onCreate, onProfile }: { onHome: () => void; onExplore: () => void; onMemes: () => void; onCreate: () => void; onProfile: () => void }) {
+  const [activeDestination, setActiveDestination] = useState<'home' | 'explore' | 'memes'>('home');
 
   useEffect(() => {
-    const explore = document.getElementById('explore');
-    if (!explore || !('IntersectionObserver' in window)) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      setActiveDestination(entry.isIntersecting ? 'explore' : 'home');
+    const destinations = [
+      { id: 'explore', key: 'explore' as const },
+      { id: 'memes', key: 'memes' as const },
+    ].flatMap((destination) => {
+      const element = document.getElementById(destination.id);
+      return element ? [{ ...destination, element }] : [];
+    });
+    if (!destinations.length || !('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver((entries) => {
+      const current = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)
+        .at(-1);
+      if (current) {
+        const destination = destinations.find((item) => item.element === current.target);
+        if (destination) setActiveDestination(destination.key);
+      } else if (window.scrollY < (document.getElementById('explore')?.offsetTop ?? Infinity)) {
+        setActiveDestination('home');
+      }
     }, { rootMargin: '-20% 0px -65% 0px', threshold: 0 });
-    observer.observe(explore);
+    destinations.forEach(({ element }) => observer.observe(element));
     return () => observer.disconnect();
   }, []);
 
-  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="bottom-nav-surface glass grid grid-cols-4 items-center gap-1 border-t border-soft px-2 pt-1.5">
+  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="bottom-nav-surface glass grid grid-cols-5 items-center gap-0.5 border-t border-soft px-1.5 pt-1.5">
     <button type="button" onClick={onHome} aria-current={activeDestination === 'home' ? 'page' : undefined} aria-label="Go to home" className={`bottom-nav-item ${activeDestination === 'home' ? 'bottom-nav-item-active' : ''}`}><Home size={20} /><span>Home</span></button>
     <button type="button" onClick={onExplore} aria-current={activeDestination === 'explore' ? 'location' : undefined} aria-label="Explore campus posts" className={`bottom-nav-item ${activeDestination === 'explore' ? 'bottom-nav-item-active' : ''}`}><Compass size={20} /><span>Explore</span></button>
-    <button type="button" onClick={onCreate} aria-label="Drop a secret" className="bottom-nav-create btn-primary"><Plus size={23} /><span className="sr-only">Create post</span></button>
+    <button type="button" onClick={onCreate} aria-label="Create a post" className="bottom-nav-create"><span className="bottom-nav-create-icon"><Plus size={21} /></span><span>Create</span></button>
+    <button type="button" onClick={onMemes} aria-current={activeDestination === 'memes' ? 'location' : undefined} aria-label="Open Meme Wall" className={`bottom-nav-item ${activeDestination === 'memes' ? 'bottom-nav-item-active' : ''}`}><Laugh size={20} /><span>Meme Wall</span></button>
     <button type="button" onClick={onProfile} aria-label="Open your anonymous profile" className="bottom-nav-item"><UserRound size={20} /><span>Profile</span></button>
   </div></nav>;
 }

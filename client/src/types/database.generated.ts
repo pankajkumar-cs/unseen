@@ -1084,7 +1084,6 @@ export type Database = {
         | "Memes"
         | "Rants"
         | "Spotted"
-        | "Placements"
       post_moderation_status:
         | "pending"
         | "approved"
@@ -1223,7 +1222,7 @@ export const Constants = {
       account_moderation_status: ["ACTIVE", "SUSPENDED", "BANNED"],
       account_role: ["USER", "ADMIN"],
       poll_status: ["published", "hidden", "removed"],
-      post_category: ["Confessions", "Memes", "Rants", "Spotted", "Placements"],
+      post_category: ["Confessions", "Memes", "Rants", "Spotted"],
       post_moderation_status: [
         "pending",
         "approved",

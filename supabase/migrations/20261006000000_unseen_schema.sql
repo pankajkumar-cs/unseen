@@ -14,7 +14,7 @@ do $$ begin
   create type public.account_moderation_status as enum ('ACTIVE', 'SUSPENDED', 'BANNED');
 exception when duplicate_object then null; end $$;
 do $$ begin
-  create type public.post_category as enum ('Confessions', 'Memes', 'Rants', 'Spotted', 'Placements');
+  create type public.post_category as enum ('Confessions', 'Memes', 'Rants', 'Spotted');
 exception when duplicate_object then null; end $$;
 do $$ begin
   create type public.post_moderation_status as enum ('pending', 'approved', 'hidden', 'removed', 'deleted');

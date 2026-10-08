@@ -15,7 +15,6 @@ const categories: Array<{ name: string; value: PostCategory | null; emoji: strin
   { name: 'Memes', value: 'Memes', emoji: '😂' },
   { name: 'Rants', value: 'Rants', emoji: '🌩️' },
   { name: 'Spotted', value: 'Spotted', emoji: '👀' },
-  { name: 'Placements', value: 'Placements', emoji: '🎓' },
 ];
 
 const reportReasons = [
