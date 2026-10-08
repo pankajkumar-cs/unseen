@@ -205,8 +205,8 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
         <div><div className="text-xs font-bold tracking-[.2em] text-unseen-600">EXPLORE FEED</div><h2 className="mt-2 font-grotesk text-3xl font-bold tracking-tight sm:text-[42px]">Campus ki <span className="grad-text">awaaz</span>, bina naam.</h2></div>
         <button type="button" onClick={onCreatePost} className="btn-primary flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold"><Send size={15} /> Confess anonymously</button>
       </div>
-      <div className="scrollbar-hide mt-6 flex gap-2 overflow-x-auto pb-2" role="group" aria-label="Filter posts by category">
-        {categories.map((item) => <button key={item.name} type="button" onClick={() => onCategoryChange(item.value)} aria-pressed={category === item.value} className={`chip whitespace-nowrap rounded-full px-5 py-2.5 text-[13px] font-bold ${category === item.value ? 'active' : ''}`}>{item.emoji} {item.name}</button>)}
+      <div className="feed-category-scroll mt-5 flex snap-x snap-mandatory gap-2 pb-2 sm:mt-6" role="group" aria-label="Filter posts by category">
+        {categories.map((item) => <button key={item.name} type="button" onClick={() => onCategoryChange(item.value)} aria-pressed={category === item.value} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${category === item.value ? 'feed-category-active' : ''}`}>{item.emoji} {item.name}</button>)}
       </div>
       {error && <div role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       <div className="feed-two-col mt-4">

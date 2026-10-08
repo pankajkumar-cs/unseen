@@ -50,9 +50,9 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
   return (
     <header className="fixed inset-x-0 top-0 z-[60]">
       <div className="site-header-surface glass border-b border-soft">
-        <div className="site-header-inner mx-auto grid h-16 max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-5 2xl:px-6">
-          <a href="#top" className="flex min-w-0 items-center gap-2.5 sm:gap-3" aria-label="UNSEEN home">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] shadow-md sm:h-11 sm:w-11" style={{ background: 'linear-gradient(135deg,#7C3AED,#4F46E5)' }}>
+        <div className="site-header-inner mx-auto grid h-[60px] max-w-7xl grid-cols-[minmax(0,1fr)_auto] items-center gap-1 px-2.5 sm:h-16 sm:gap-4 sm:px-5 lg:grid-cols-[auto_minmax(0,1fr)_auto] 2xl:px-6">
+          <a href="#top" className="flex min-w-0 items-center gap-2 sm:gap-3" aria-label="UNSEEN home">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[13px] shadow-md sm:h-11 sm:w-11 sm:rounded-[14px]" style={{ background: 'linear-gradient(135deg,#7C3AED,#4F46E5)' }}>
               <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
                 <path d="M8 10 Q8 6 14 6 H34 Q42 6 42 14 V28 Q42 36 34 36 H20 L12 42 L13.5 35 Q8 34 8 28 Z" fill="white" />
                 <path d="M12 21 Q24 11 36 21 Q24 31 12 21Z" fill="#2e1065" />
@@ -60,7 +60,7 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
               </svg>
             </span>
             <span className="min-w-0 leading-none">
-              <span className="block truncate font-grotesk text-[18px] font-bold tracking-tight sm:text-[19px]">UNSEEN <span className="ml-0.5 inline-flex translate-y-[-1px] rounded-full border border-purple-200 bg-white/70 px-1.5 py-0.5 font-inter text-[9px] font-bold tracking-[.15em] text-purple-700 sm:px-2 sm:text-[10px]">DEC</span></span>
+              <span className="block truncate font-grotesk text-[16px] font-bold tracking-tight sm:text-[19px]">UNSEEN <span className="ml-0.5 inline-flex translate-y-[-1px] rounded-full border border-purple-200 bg-white/70 px-1.5 py-0.5 font-inter text-[9px] font-bold tracking-[.15em] text-purple-700 sm:px-2 sm:text-[10px]">DEC</span></span>
               <span className="mt-1 hidden text-[9px] font-bold tracking-[.16em] text-muted xl:block">DUMKA ENGINEERING COLLEGE</span>
             </span>
           </a>
@@ -74,7 +74,7 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
             })}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1.5">
             <button type="button" onClick={() => { const opening = !searchOpen; setSearchOpen(opening); if (!opening) onSearch(''); }} className="chip flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-10" aria-label={searchOpen ? 'Close search' : 'Search posts'} aria-expanded={searchOpen} aria-controls="global-search-panel">
               {searchOpen ? <X size={19} /> : <Search size={19} />}
             </button>
@@ -84,7 +84,7 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
             <button type="button" onClick={() => profile?.isRegistered ? onOpenProfile() : onOpenAuth('login')} className="flex h-11 max-w-[180px] items-center gap-2 rounded-full border border-soft bg-white/45 px-1.5 text-sm font-semibold transition hover:border-purple-200 hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 sm:px-2 xl:h-10" title={profile?.isRegistered ? 'Open anonymous profile' : 'Sign in'} aria-label={profile?.isRegistered ? 'Open anonymous profile' : 'Sign in'}>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-base" style={{ background: profile?.color ?? '#FEF3C7' }}>{profile?.emoji ?? '👻'}</span>
               <span className="hidden truncate xl:block">{profile?.isRegistered ? profile.display_name.replace(/^Anonymous\s+/, '') : 'Sign in'}</span>
-              {!profile?.isRegistered && <LogIn size={15} className="xl:hidden" />}
+              {!profile?.isRegistered && <LogIn size={15} className="hidden sm:block xl:hidden" />}
             </button>
             <button type="button" onClick={onOpenComposer} className="btn-primary flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-auto xl:gap-2 xl:px-4 xl:text-sm xl:font-bold" aria-label="Create a post"><Plus size={19} /><span className="hidden xl:inline">Confess</span></button>
           </div>

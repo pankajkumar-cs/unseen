@@ -183,11 +183,23 @@ function Preloader() {
 }
 
 function MobileNav({ onHome, onExplore, onCreate, onProfile }: { onHome: () => void; onExplore: () => void; onCreate: () => void; onProfile: () => void }) {
-  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="glass grid grid-cols-4 items-center justify-items-center gap-1 border-t border-soft px-2 pb-3 pt-2">
-    <button type="button" onClick={onHome} aria-label="Go to home" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-unseen-600"><Home size={20} /><span className="text-[10px] font-bold">Home</span></button>
-    <button type="button" onClick={onExplore} aria-label="Explore campus posts" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-muted"><Compass size={20} /><span className="text-[10px] font-bold">Explore</span></button>
-    <button type="button" onClick={onCreate} aria-label="Drop a secret" className="btn-primary -mt-7 flex h-14 w-14 items-center justify-center rounded-full border-4 border-[var(--bg)] shadow-lg"><Plus size={24} /></button>
-    <button type="button" onClick={onProfile} aria-label="Open your anonymous profile" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-muted"><UserRound size={20} /><span className="text-[10px] font-bold">Ghost</span></button>
+  const [activeDestination, setActiveDestination] = useState<'home' | 'explore'>('home');
+
+  useEffect(() => {
+    const explore = document.getElementById('explore');
+    if (!explore || !('IntersectionObserver' in window)) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setActiveDestination(entry.isIntersecting ? 'explore' : 'home');
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: 0 });
+    observer.observe(explore);
+    return () => observer.disconnect();
+  }, []);
+
+  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="bottom-nav-surface glass grid grid-cols-4 items-center gap-1 border-t border-soft px-2 pt-1.5">
+    <button type="button" onClick={onHome} aria-current={activeDestination === 'home' ? 'page' : undefined} aria-label="Go to home" className={`bottom-nav-item ${activeDestination === 'home' ? 'bottom-nav-item-active' : ''}`}><Home size={20} /><span>Home</span></button>
+    <button type="button" onClick={onExplore} aria-current={activeDestination === 'explore' ? 'location' : undefined} aria-label="Explore campus posts" className={`bottom-nav-item ${activeDestination === 'explore' ? 'bottom-nav-item-active' : ''}`}><Compass size={20} /><span>Explore</span></button>
+    <button type="button" onClick={onCreate} aria-label="Drop a secret" className="bottom-nav-create btn-primary"><Plus size={23} /><span className="sr-only">Create post</span></button>
+    <button type="button" onClick={onProfile} aria-label="Open your anonymous profile" className="bottom-nav-item"><UserRound size={20} /><span>Profile</span></button>
   </div></nav>;
 }
 
@@ -209,7 +221,7 @@ function CallToAction({ onCreatePost }: { onCreatePost: () => void }) {
 }
 
 function Footer({ onOpenAdmin, showAdmin }: { onOpenAdmin: () => void; showAdmin: boolean }) {
-  return <footer className="border-t border-soft bg-card"><div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-2"><div><div className="flex items-center gap-2.5"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 text-xl text-white">👁️</div><div className="font-grotesk text-lg font-bold">UNSEEN</div></div><p className="mt-3 text-[13px] font-medium leading-relaxed text-muted">Exclusive anonymous platform for <b className="text-primary">Dumka Engineering College</b>. Instagram + Reddit + diary — sab ek jagah.</p><div className="mt-4 flex gap-2"><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">📍 Dumka, Jharkhand</span><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">🎓 JUT Affiliated</span></div></div><div><div className="font-grotesk text-sm font-bold tracking-wider">EXPLORE</div><div className="mt-3 flex flex-col gap-2 text-[13px] font-semibold text-muted"><a href="#pulse">⚡ Live Pulse</a><a href="#explore">✨ Confessions Feed</a><a href="#battles">🎲 Campus Polls</a><a href="#memes">😂 Meme Wall</a></div>{showAdmin && <button type="button" onClick={onOpenAdmin} className="chip mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold"><ShieldCheck size={16} /> Admin Dashboard</button>}</div></div><div className="border-t border-soft px-4 py-5 text-center text-[12px] font-semibold text-faint sm:px-6">© 2026 UNSEEN · Made with 💜 for Dumka Engineering College · Ye literally hamare college ke liye bana hai. <span className="mx-2">·</span><a href="#safety">Guidelines</a></div></footer>;
+  return <footer className="site-footer border-t border-soft bg-card"><div className="mx-auto grid max-w-7xl gap-7 px-4 py-9 sm:px-6 sm:py-12 md:grid-cols-2 md:gap-8"><div><div className="flex items-center gap-2.5"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-700 text-xl text-white">👁️</div><div className="font-grotesk text-lg font-bold">UNSEEN</div></div><p className="mt-3 max-w-md text-[13px] font-medium leading-relaxed text-muted">Exclusive anonymous platform for <b className="text-primary">Dumka Engineering College</b>. Instagram + Reddit + diary — sab ek jagah.</p><div className="mt-4 flex flex-wrap gap-2"><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">📍 Dumka, Jharkhand</span><span className="chip rounded-full px-3 py-1.5 text-[11px] font-bold">🎓 JUT Affiliated</span></div></div><div><div className="font-grotesk text-sm font-bold tracking-wider">EXPLORE</div><div className="site-footer-links mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-[13px] font-semibold text-muted sm:flex sm:flex-col"><a href="#pulse">⚡ Live Pulse</a><a href="#explore">✨ Confessions Feed</a><a href="#battles">🎲 Campus Polls</a><a href="#memes">😂 Meme Wall</a></div>{showAdmin && <button type="button" onClick={onOpenAdmin} className="chip mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold sm:w-auto"><ShieldCheck size={16} /> Admin Dashboard</button>}</div></div><div className="border-t border-soft px-4 py-4 text-left text-[11px] font-semibold leading-relaxed text-faint sm:px-6 sm:py-5 sm:text-center sm:text-[12px]">© 2026 UNSEEN · Made with 💜 for Dumka Engineering College · <span className="sm:mx-2">·</span><a href="#safety" className="inline-block min-h-11 py-3 text-unseen-700 sm:min-h-0 sm:py-0">Guidelines</a></div></footer>;
 }
 
 function SetupNotice() {
