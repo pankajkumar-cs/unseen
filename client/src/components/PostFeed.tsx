@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { Virtuoso } from 'react-virtuoso';
 import { getUserFacingError } from '../lib/errors';
 import { formatRelativeIndiaTime } from '../lib/dates';
 import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2, X } from 'lucide-react';
@@ -21,8 +22,6 @@ const reportReasons = [
   'Harassment / Bullying', 'Spam / Irrelevant', 'Personal Info (Doxxing)',
   'Hate / abusive content', 'Sexual content', 'Threat', 'Personal information', 'Impersonation', 'Other',
 ];
-const MAX_FEED_ITEMS = 100;
-
 function isPostCategory(value: unknown): value is PostCategory {
   return typeof value === 'string' && categories.some((category) => category.value === value);
 }
@@ -94,7 +93,7 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
   }, [category]);
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || !cursor || posts.length >= MAX_FEED_ITEMS || loadingMoreRef.current) return;
+    if (!hasMore || !cursor || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     const requestId = generation.current;
@@ -103,17 +102,17 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       if (requestId !== generation.current) return;
       setPosts((current) => {
         const known = new Set(current.map((post) => post.id));
-        return [...current, ...page.posts.filter((post) => !known.has(post.id))].slice(0, MAX_FEED_ITEMS);
+        return [...current, ...page.posts.filter((post) => !known.has(post.id))];
       });
       setCursor(page.cursor);
-      setHasMore(page.posts.length === 20 && posts.length + page.posts.length < MAX_FEED_ITEMS);
+      setHasMore(page.posts.length === 20);
     } catch (cause) {
       onToast(getUserFacingError(cause, 'More posts could not load.'), 'error');
     } finally {
       if (requestId === generation.current) setLoadingMore(false);
       loadingMoreRef.current = false;
     }
-  }, [category, cursor, hasMore, onToast, posts.length]);
+  }, [category, cursor, hasMore, onToast]);
 
   useEffect(() => {
     const element = sentinel.current;
@@ -163,7 +162,7 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       if (!incoming || (category && incoming.category !== category)) return;
       setPosts((current) => {
         const index = current.findIndex((post) => post.id === incoming.id);
-        if (index < 0) return event.type === 'post:new' || event.type === 'post:moderated' ? [incoming, ...current].slice(0, MAX_FEED_ITEMS) : current;
+        if (index < 0) return event.type === 'post:new' || event.type === 'post:moderated' ? [incoming, ...current] : current;
         const updated = [...current];
         updated[index] = { ...updated[index], ...incoming, imageUrl: imageUrl ?? updated[index].imageUrl };
         return updated;
@@ -197,11 +196,17 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       <div className="feed-two-col mt-4">
         <div className="masonry min-w-0" aria-live="polite" aria-busy={loading}>
           {loading && Array.from({ length: 3 }, (_, index) => <div key={index} className="card mb-5 h-64 animate-pulse p-5"><div className="skeleton h-9 w-36 rounded-full" /><div className="skeleton mt-5 h-4 w-full rounded" /><div className="skeleton mt-3 h-4 w-3/4 rounded" /><div className="skeleton mt-8 h-20 w-full rounded-2xl" /></div>)}
-          {!loading && visiblePosts.map((post) => <PostCard key={post.id} post={post} profile={profile} onPostUpdate={onPostUpdate} onOpenAuth={onOpenAuth} onToast={onToast} />)}
+          {!loading && visiblePosts.length > 0 && <Virtuoso
+            data={visiblePosts}
+            useWindowScroll
+            defaultItemHeight={360}
+            increaseViewportBy={{ top: 500, bottom: 900 }}
+            computeItemKey={(_index, post) => post.id}
+            itemContent={(_index, post) => <div className="pb-5"><PostCard post={post} profile={profile} onPostUpdate={onPostUpdate} onOpenAuth={onOpenAuth} onToast={onToast} /></div>}
+          />}
           {!loading && !visiblePosts.length && <div className="card p-10 text-center"><div className="text-5xl">👻</div><div className="mt-3 font-grotesk text-xl font-bold">{searchTerm ? 'No secrets found' : 'No secrets here yet'}</div><p className="mt-1 text-sm text-muted">{searchTerm ? 'Try another search, or share your own story.' : 'Be the first ghost to share something with campus.'}</p><button type="button" onClick={onCreatePost} className="btn-primary mt-5 rounded-full px-6 py-2.5 text-sm font-bold">+ Confess anonymously</button></div>}
           <div ref={sentinel} className="h-1" aria-hidden="true" />
           {!loading && loadingMore && <div className="flex justify-center py-6 text-unseen-700"><LoaderCircle size={22} className="animate-spin" aria-label="Loading more posts" /></div>}
-          {!loading && posts.length >= MAX_FEED_ITEMS && <p className="py-6 text-center text-xs font-semibold text-faint">Showing the 100 most recent posts. Choose a category to narrow the feed.</p>}
           {!loading && !hasMore && visiblePosts.length > 0 && <p className="py-6 text-center text-xs font-semibold text-faint">You’re all caught up.</p>}
         </div>
         <aside className="hidden flex-col gap-4 lg:flex">
@@ -357,7 +362,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   };
 
   return (
-    <article id={`post-${post.id}`} className="card mb-5 overflow-hidden p-5" aria-label={`${post.category} post`}>
+    <article id={`post-${post.id}`} className="card overflow-hidden p-5" aria-label={`${post.category} post`}>
       <div className="flex items-start gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: post.authorColor }}>{post.authorEmoji}</span>
         <div className="min-w-0 flex-1">

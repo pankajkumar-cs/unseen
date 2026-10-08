@@ -167,14 +167,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     const client = requireSupabase();
-    if (profile?.isRegistered) {
-      try {
-        const { data: rooms } = await client.rpc('random_chat_current');
-        const room = rooms?.[0];
-        if (room?.session_key) await client.rpc('random_chat_end', { p_session_key: room.session_key });
-        await client.rpc('random_chat_cancel');
-      } catch { /* Logout still proceeds if a chat cleanup request cannot reach Supabase. */ }
-    }
     const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
     if (signOutError) throw signOutError;
     const { data, error: anonymousError } = await client.auth.signInAnonymously();

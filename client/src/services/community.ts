@@ -36,18 +36,6 @@ export interface CrushView {
   expiresAt: string;
 }
 
-export interface MailboxView {
-  id: string;
-  sender: string;
-  emoji: string;
-  color: string;
-  preview: string;
-  body: string | null;
-  sealed: boolean;
-  sent: boolean;
-  createdAt: string;
-}
-
 function throwIfError(error: unknown) {
   if (error) throw error;
 }
@@ -153,42 +141,4 @@ export async function reactToCrush(crushId: string, kind: 'ship' | 'blush') {
   });
   throwIfError(error);
   return data?.[0] ?? null;
-}
-
-export async function loadMailbox(): Promise<MailboxView[]> {
-  const { data, error } = await requireSupabase().rpc('list_mailbox_messages');
-  throwIfError(error);
-  return (data ?? []).map((row) => ({
-    id: row.public_id,
-    sender: row.sender_name,
-    emoji: row.sender_emoji,
-    color: row.sender_color,
-    preview: row.preview,
-    body: row.body,
-    sealed: row.is_sealed,
-    sent: row.sent,
-    createdAt: row.created_at,
-  }));
-}
-
-export async function activeGhostProfiles() {
-  const { data, error } = await requireSupabase().rpc('active_ghost_profiles');
-  throwIfError(error);
-  return data ?? [];
-}
-
-export async function sendMailboxMessage(ghostId: string, body: string) {
-  const { error } = await requireSupabase().rpc('send_mailbox_message', {
-    p_recipient_ghost_id: ghostId,
-    p_body: body,
-  });
-  throwIfError(error);
-}
-
-export async function openMailboxMessage(publicId: string) {
-  const { data, error } = await requireSupabase().rpc('open_mailbox_message', { p_public_id: publicId });
-  throwIfError(error);
-  const opened = data?.[0];
-  if (!opened) throw new Error('This envelope is unavailable or has expired.');
-  return opened;
 }

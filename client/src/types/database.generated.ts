@@ -379,69 +379,6 @@ export type Database = {
           },
         ]
       }
-      mailbox_messages: {
-        Row: {
-          body: string
-          burned_at: string
-          created_at: string
-          id: string
-          is_sealed: boolean
-          preview: string
-          public_id: string
-          recipient_identity_id: string | null
-          recipient_name: string
-          sender_color: string
-          sender_emoji: string
-          sender_identity_id: string | null
-          sender_name: string
-        }
-        Insert: {
-          body: string
-          burned_at?: string
-          created_at?: string
-          id?: string
-          is_sealed?: boolean
-          preview?: string
-          public_id?: string
-          recipient_identity_id?: string | null
-          recipient_name?: string
-          sender_color?: string
-          sender_emoji?: string
-          sender_identity_id?: string | null
-          sender_name?: string
-        }
-        Update: {
-          body?: string
-          burned_at?: string
-          created_at?: string
-          id?: string
-          is_sealed?: boolean
-          preview?: string
-          public_id?: string
-          recipient_identity_id?: string | null
-          recipient_name?: string
-          sender_color?: string
-          sender_emoji?: string
-          sender_identity_id?: string | null
-          sender_name?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "mailbox_messages_recipient_identity_id_fkey"
-            columns: ["recipient_identity_id"]
-            isOneToOne: false
-            referencedRelation: "anonymous_identities"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "mailbox_messages_sender_identity_id_fkey"
-            columns: ["sender_identity_id"]
-            isOneToOne: false
-            referencedRelation: "anonymous_identities"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       media: {
         Row: {
           created_at: string
@@ -828,255 +765,6 @@ export type Database = {
         }
         Relationships: []
       }
-      random_chat_blocks: {
-        Row: {
-          blocked_id: string
-          blocker_id: string
-          created_at: string
-        }
-        Insert: {
-          blocked_id: string
-          blocker_id: string
-          created_at?: string
-        }
-        Update: {
-          blocked_id?: string
-          blocker_id?: string
-          created_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_blocks_blocked_id_fkey"
-            columns: ["blocked_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_blocks_blocker_id_fkey"
-            columns: ["blocker_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      random_chat_messages: {
-        Row: {
-          body: string
-          created_at: string
-          expires_at: string | null
-          id: string
-          sender_id: string
-          sender_profile: Json
-          session_id: string
-        }
-        Insert: {
-          body: string
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          sender_id: string
-          sender_profile: Json
-          session_id: string
-        }
-        Update: {
-          body?: string
-          created_at?: string
-          expires_at?: string | null
-          id?: string
-          sender_id?: string
-          sender_profile?: Json
-          session_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_messages_sender_id_fkey"
-            columns: ["sender_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_messages_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "random_chat_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      random_chat_queue: {
-        Row: {
-          created_at: string
-          expires_at: string
-          status: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          expires_at: string
-          status?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          expires_at?: string
-          status?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_queue_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: true
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      random_chat_queue_exclusions: {
-        Row: {
-          excluded_user_id: string
-          user_id: string
-        }
-        Insert: {
-          excluded_user_id: string
-          user_id: string
-        }
-        Update: {
-          excluded_user_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_queue_exclusions_excluded_user_id_fkey"
-            columns: ["excluded_user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_queue_exclusions_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "random_chat_queue"
-            referencedColumns: ["user_id"]
-          },
-        ]
-      }
-      random_chat_reports: {
-        Row: {
-          created_at: string
-          detail: string
-          id: string
-          reason: string
-          reported_id: string
-          reporter_id: string
-          session_id: string
-          status: Database["public"]["Enums"]["random_chat_report_status"]
-        }
-        Insert: {
-          created_at?: string
-          detail?: string
-          id?: string
-          reason: string
-          reported_id: string
-          reporter_id: string
-          session_id: string
-          status?: Database["public"]["Enums"]["random_chat_report_status"]
-        }
-        Update: {
-          created_at?: string
-          detail?: string
-          id?: string
-          reason?: string
-          reported_id?: string
-          reporter_id?: string
-          session_id?: string
-          status?: Database["public"]["Enums"]["random_chat_report_status"]
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_reports_reported_id_fkey"
-            columns: ["reported_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_reports_reporter_id_fkey"
-            columns: ["reporter_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_reports_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "random_chat_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      random_chat_sessions: {
-        Row: {
-          created_at: string
-          ended_at: string | null
-          expires_at: string | null
-          id: string
-          moderation_hold: boolean
-          profile_a: Json
-          profile_b: Json
-          session_key: string
-          status: Database["public"]["Enums"]["random_chat_status"]
-          user_a_id: string
-          user_b_id: string
-        }
-        Insert: {
-          created_at?: string
-          ended_at?: string | null
-          expires_at?: string | null
-          id?: string
-          moderation_hold?: boolean
-          profile_a: Json
-          profile_b: Json
-          session_key?: string
-          status?: Database["public"]["Enums"]["random_chat_status"]
-          user_a_id: string
-          user_b_id: string
-        }
-        Update: {
-          created_at?: string
-          ended_at?: string | null
-          expires_at?: string | null
-          id?: string
-          moderation_hold?: boolean
-          profile_a?: Json
-          profile_b?: Json
-          session_key?: string
-          status?: Database["public"]["Enums"]["random_chat_status"]
-          user_a_id?: string
-          user_b_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "random_chat_sessions_user_a_id_fkey"
-            columns: ["user_a_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "random_chat_sessions_user_b_id_fkey"
-            columns: ["user_b_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       reports: {
         Row: {
           comment_id: string | null
@@ -1172,14 +860,6 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      active_ghost_profiles: {
-        Args: never
-        Returns: {
-          display_name: string
-          emoji: string
-          ghost_id: string
-        }[]
-      }
       can_read_comment: {
         Args: { p_comment_public_id: string }
         Returns: boolean
@@ -1361,85 +1041,10 @@ export type Database = {
       is_public_poll: { Args: { p_public_id: string }; Returns: boolean }
       is_public_post: { Args: { p_public_id: string }; Returns: boolean }
       is_valid_voter: { Args: never; Returns: boolean }
-      list_mailbox_messages: {
-        Args: never
-        Returns: {
-          body: string
-          created_at: string
-          is_sealed: boolean
-          preview: string
-          public_id: string
-          sender_color: string
-          sender_emoji: string
-          sender_name: string
-          sent: boolean
-        }[]
-      }
       my_poll_vote: { Args: { p_poll_public_id: string }; Returns: string }
-      open_mailbox_message: {
-        Args: { p_public_id: string }
-        Returns: {
-          body: string
-          created_at: string
-          preview: string
-          public_id: string
-          sender_color: string
-          sender_emoji: string
-          sender_name: string
-        }[]
-      }
       owns_uploaded_media_object: {
         Args: { object_path: string }
         Returns: boolean
-      }
-      random_chat_block: { Args: { p_session_key: string }; Returns: boolean }
-      random_chat_cancel: { Args: never; Returns: boolean }
-      random_chat_current: {
-        Args: never
-        Returns: {
-          messages: Json
-          partner: Json
-          session_id: string
-          session_key: string
-          state: string
-        }[]
-      }
-      random_chat_end: { Args: { p_session_key: string }; Returns: boolean }
-      random_chat_heartbeat: { Args: never; Returns: boolean }
-      random_chat_report: {
-        Args: { p_detail?: string; p_reason: string; p_session_key: string }
-        Returns: string
-      }
-      random_chat_send: {
-        Args: { p_body: string; p_session_key: string; p_client_message_id?: string }
-        Returns: {
-          broadcast_ticket: string
-          body: string
-          created_at: string
-          client_message_id: string
-          sender_id: string
-          sender_profile: Json
-        }[]
-      }
-      random_chat_start: {
-        Args: never
-        Returns: {
-          partner: Json
-          session_id: string
-          session_key: string
-          state: string
-        }[]
-      }
-      send_mailbox_message: {
-        Args: { p_body: string; p_recipient_ghost_id: string }
-        Returns: {
-          created_at: string
-          preview: string
-          public_id: string
-          sender_color: string
-          sender_emoji: string
-          sender_name: string
-        }[]
       }
       set_poll_vote: {
         Args: { p_option_id: string; p_poll_public_id: string }
@@ -1486,8 +1091,6 @@ export type Database = {
         | "hidden"
         | "removed"
         | "deleted"
-      random_chat_report_status: "OPEN" | "REVIEWED" | "DISMISSED"
-      random_chat_status: "ACTIVE" | "ENDED"
       report_status: "open" | "resolved" | "dismissed"
       report_target_type: "post" | "comment" | "account"
     }
@@ -1628,8 +1231,6 @@ export const Constants = {
         "removed",
         "deleted",
       ],
-      random_chat_report_status: ["OPEN", "REVIEWED", "DISMISSED"],
-      random_chat_status: ["ACTIVE", "ENDED"],
       report_status: ["open", "resolved", "dismissed"],
       report_target_type: ["post", "comment", "account"],
     },

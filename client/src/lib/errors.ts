@@ -52,14 +52,12 @@ export function getUserFacingError(error: unknown, fallback: string): string {
   if (/at least 10 characters|stronger password|password.*too short/.test(normalized)) return 'Choose a password with at least 10 characters.';
   if (/daily post limit reached/.test(normalized)) return 'You have reached today’s posting limit. Try again tomorrow.';
   if (/post text must be 1 to 500|comment must be 1 to 500/.test(normalized)) return 'Text must be between 1 and 500 characters.';
-  if (/message must be 1 to 1000/.test(normalized)) return 'Mailbox notes must be between 1 and 1,000 characters.';
   if (/message must be 1 to 500/.test(normalized)) return 'Messages must be between 1 and 500 characters.';
   if (/polls need 2 to 6 options/.test(normalized)) return 'A poll needs between 2 and 6 options.';
   if (/poll options must be 1 to 160/.test(normalized)) return 'Each poll option must be between 1 and 160 characters.';
   if (/invalid poll text/.test(normalized)) return 'Poll questions must be 8–200 characters, and the tag can be up to 40 characters.';
   if (/options must be an array|invalid poll options/.test(normalized)) return 'Choose valid options for this poll and try again.';
   if (/invalid spotted post/.test(normalized)) return 'Add a recipient name and keep the note within 500 characters.';
-  if (/please keep personal contact information out of random chat/.test(normalized)) return 'Please keep personal contact information out of Random Chat.';
   if (/slow down before sending another message|please wait before repeating a message/.test(normalized)) return 'Please wait a moment before sending another message.';
   if (/this chat has ended/.test(normalized)) return 'This chat has ended. Start a new chat to continue.';
   if (/recipient is unavailable/.test(normalized)) return 'This campus ghost is no longer available.';

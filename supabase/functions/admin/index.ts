@@ -56,16 +56,14 @@ Deno.serve(async (request) => {
 
   try {
     if (action === 'overview') {
-      const [accounts, posts, reports, media, chats, waiting] = await Promise.all([
+      const [accounts, posts, reports, media] = await Promise.all([
         admin.from('profiles').select('id', { count: 'exact', head: true }).eq('moderation_status', 'ACTIVE'),
         admin.from('posts').select('id', { count: 'exact', head: true }).gt('expires_at', new Date().toISOString()),
         admin.from('reports').select('id', { count: 'exact', head: true }).eq('status', 'open'),
         admin.from('media').select('id', { count: 'exact', head: true }),
-        admin.from('random_chat_sessions').select('id', { count: 'exact', head: true }).eq('status', 'ACTIVE'),
-        admin.from('random_chat_queue').select('user_id', { count: 'exact', head: true }).eq('status', 'WAITING').gt('expires_at', new Date().toISOString()),
       ]);
-      if ([accounts, posts, reports, media, chats, waiting].some((result) => result.error)) return json({ error: 'Could not load the campus overview.' }, 503);
-      return json({ overview: { activeAccounts: accounts.count ?? 0, posts: posts.count ?? 0, openReports: reports.count ?? 0, media: media.count ?? 0, activeChats: chats.count ?? 0, waiting: waiting.count ?? 0 } });
+      if ([accounts, posts, reports, media].some((result) => result.error)) return json({ error: 'Could not load the campus overview.' }, 503);
+      return json({ overview: { activeAccounts: accounts.count ?? 0, posts: posts.count ?? 0, openReports: reports.count ?? 0, media: media.count ?? 0 } });
     }
     if (action === 'users') {
       const search = String(body.search ?? '').normalize('NFKC').trim().toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
@@ -117,27 +115,6 @@ Deno.serve(async (request) => {
       }));
       return json({ rows, total: count ?? 0, pageSize: 60 });
     }
-    if (action === 'chat-reports') {
-      const { data: reports, error, count } = await admin.from('random_chat_reports').select('id,session_id,reporter_id,reported_id,reason,detail,status,created_at', { count: 'exact' })
-        .eq('status', 'OPEN').order('created_at', { ascending: false }).range(page * 40, page * 40 + 39);
-      if (error) return json({ error: 'Could not load Random Chat reports.' }, 503);
-      const sessionIds = [...new Set((reports ?? []).map((row) => row.session_id))];
-      const userIds = [...new Set((reports ?? []).flatMap((row) => [row.reporter_id, row.reported_id]))];
-      const [profileRows, messages] = await Promise.all([
-        userIds.length ? admin.from('anonymous_identities').select('user_id,display_name').in('user_id', userIds) : Promise.resolve({ data: [], error: null }),
-        sessionIds.length ? admin.from('random_chat_messages').select('session_id,sender_profile,body,created_at').in('session_id', sessionIds).order('created_at', { ascending: true }).limit(200) : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (profileRows.error || messages.error) return json({ error: 'Could not load the reported chat context.' }, 503);
-      const names = new Map((profileRows.data ?? []).map((row) => [row.user_id, row.display_name]));
-      const chats = new Map<string, Array<{ from: string; body: string; created_at: string }>>();
-      for (const row of messages.data ?? []) {
-        const list = chats.get(row.session_id) ?? [];
-        const sender = row.sender_profile && typeof row.sender_profile === 'object' ? row.sender_profile as { name?: string } : {};
-        list.push({ from: sender.name ?? 'Anonymous Ghost', body: row.body, created_at: row.created_at });
-        chats.set(row.session_id, list);
-      }
-      return json({ rows: (reports ?? []).map((row) => ({ ...row, id: row.id, reporter: names.get(row.reporter_id) ?? 'Unavailable', reported: names.get(row.reported_id) ?? 'Unavailable', messages: chats.get(row.session_id) ?? [] })), total: count ?? 0, pageSize: 40 });
-    }
     if (action === 'invitations') {
       const { data, error, count } = await admin.from('invitation_codes').select('id,status,created_at,claimed_at', { count: 'exact' })
         .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
@@ -178,15 +155,6 @@ Deno.serve(async (request) => {
       const { error } = await admin.from('profiles').update({ moderation_status: status, moderation_reason: reason || null, suspended_at: status === 'ACTIVE' ? null : new Date().toISOString() }).eq('id', id);
       if (error) return json({ error: 'Could not update the account status.' }, 503);
       await recordAction(`ADMIN_${status}_USER`, 'user', id, reason, { status });
-      if (status !== 'ACTIVE') {
-        await admin.from('random_chat_queue').delete().eq('user_id', id);
-        const { data: rooms } = await admin.from('random_chat_sessions').select('id').eq('status', 'ACTIVE').or(`user_a_id.eq.${id},user_b_id.eq.${id}`);
-        const roomIds = (rooms ?? []).map((room) => room.id);
-        if (roomIds.length) {
-          await admin.from('random_chat_sessions').update({ status: 'ENDED', ended_at: new Date().toISOString(), expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString() }).in('id', roomIds);
-          await admin.from('random_chat_messages').update({ expires_at: new Date(Date.now() + 86_400_000).toISOString() }).in('session_id', roomIds).is('expires_at', null);
-        }
-      }
       await admin.from('moderation_actions').insert({ account_id: id, action: `account-${String(status).toLowerCase()}`, admin_user_id: profile.id });
       return json({ success: true });
     }
@@ -272,19 +240,6 @@ Deno.serve(async (request) => {
       const { error } = await admin.from('reports').update({ status, reviewed_by: profile.id, reviewed_at: new Date().toISOString(), moderation_action: safeReason(body.action) || String(status) }).eq('id', id).eq('status', 'open');
       if (error) return json({ error: 'Could not update this report.' }, 503);
       await recordAction(`ADMIN_${String(status).toUpperCase()}_REPORT`, 'report', id, reason, {});
-      return json({ success: true });
-    }
-    if (action === 'resolve-chat-report') {
-      const status = body.status;
-      if (!['REVIEWED', 'DISMISSED'].includes(String(status))) return json({ error: 'Invalid chat report status.' }, 400);
-      const { data: report, error } = await admin.from('random_chat_reports').update({ status }).eq('id', id).eq('status', 'OPEN').select('session_id').maybeSingle();
-      if (error || !report) return json({ error: 'Could not update this chat report.' }, 503);
-      const { count } = await admin.from('random_chat_reports').select('id', { count: 'exact', head: true }).eq('session_id', report.session_id).eq('status', 'OPEN');
-      if ((count ?? 0) === 0) {
-        await admin.from('random_chat_sessions').update({ moderation_hold: false, expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString() }).eq('id', report.session_id);
-        await admin.from('random_chat_messages').update({ expires_at: new Date(Date.now() + 86_400_000).toISOString() }).eq('session_id', report.session_id).is('expires_at', null);
-      }
-      await recordAction(`ADMIN_${String(status)}_RANDOM_CHAT_REPORT`, 'random_chat_report', id, reason, {});
       return json({ success: true });
     }
     if (action === 'moderate-comment') {

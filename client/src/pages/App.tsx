@@ -1,8 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Compass, Home, Mail, MessageCircle, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { Compass, Home, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { CrushSection } from '../components/CrushSection';
-import { MailboxSection } from '../components/MailboxSection';
 import { Navbar } from '../components/Navbar';
 import { PollSection } from '../components/PollSection';
 import { PostFeed } from '../components/PostFeed';
@@ -14,7 +13,6 @@ const AuthDialog = lazy(() => import('../components/AuthDialog').then((module) =
 const PostComposer = lazy(() => import('../components/PostComposer').then((module) => ({ default: module.PostComposer })));
 const ProfileDialog = lazy(() => import('../components/ProfileDialog').then((module) => ({ default: module.ProfileDialog })));
 const AdminPanel = lazy(() => import('../components/AdminPanel').then((module) => ({ default: module.AdminPanel })));
-const RandomChat = lazy(() => import('../components/RandomChat').then((module) => ({ default: module.RandomChat })));
 const MemeWall = lazy(() => import('../components/MemeWall').then((module) => ({ default: module.MemeWall })));
 
 type Toast = { id: number; text: string; kind: 'success' | 'error' | 'info' };
@@ -25,7 +23,6 @@ export function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
-  const [randomChatOpen, setRandomChatOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [feedCategory, setFeedCategory] = useState<PostCategory | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -72,12 +69,11 @@ export function App() {
           onOpenComposer={() => setComposerOpen(true)}
           onOpenAdmin={() => setAdminOpen(true)}
           onOpenProfile={() => setProfileOpen(true)}
-          onOpenRandomChat={() => setRandomChatOpen(true)}
           onSearch={setSearch}
         />
 
         <main className="relative z-[1]">
-          <section id="hero" className="relative flex min-h-[100svh] flex-col overflow-hidden pt-[68px]">
+          <section id="hero" className="relative flex min-h-[100svh] flex-col overflow-hidden pt-16">
             <div id="sky-bg" className="absolute inset-0 bg-gradient-to-b from-[var(--hero1)] via-[var(--hero2)] to-[var(--hero3)]" />
             <div id="college-photo-slot" className="pointer-events-none absolute inset-0" aria-hidden="true" />
             <div id="hero-atmosphere" className="pointer-events-none absolute inset-0 opacity-50" style={{ background: 'radial-gradient(800px 400px at 20% 10%,rgba(124,58,237,.18),transparent),radial-gradient(700px 400px at 85% 20%,rgba(14,165,233,.12),transparent),radial-gradient(600px 500px at 50% 90%,rgba(245,158,11,.10),transparent)' }} />
@@ -118,14 +114,13 @@ export function App() {
           </div>
           <PollSection onOpenAuth={setAuthMode} onToast={toast} />
           <CrushSection onOpenAuth={setAuthMode} onToast={toast} />
-          <MailboxSection onOpenAuth={setAuthMode} onToast={toast} />
           <DeferredMemeWall onOpenAuth={setAuthMode} onToast={toast} />
-          <SafetySection onOpenMailbox={() => document.getElementById('mailbox')?.scrollIntoView({ behavior: 'smooth' })} />
+          <SafetySection />
           <CallToAction onCreatePost={() => setComposerOpen(true)} />
           <Footer onOpenAdmin={() => setAdminOpen(true)} showAdmin={profile?.role === 'ADMIN'} />
         </main>
 
-        <MobileNav onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })} onExplore={() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' })} onChat={() => setRandomChatOpen(true)} onCreate={() => setComposerOpen(true)} onMailbox={() => document.getElementById('mailbox')?.scrollIntoView({ behavior: 'smooth' })} onProfile={() => profile?.isRegistered ? setProfileOpen(true) : setAuthMode('login')} />
+        <MobileNav onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })} onExplore={() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' })} onCreate={() => setComposerOpen(true)} onProfile={() => profile?.isRegistered ? setProfileOpen(true) : setAuthMode('login')} />
 
         {error && <div role="status" className="fixed bottom-24 left-4 right-4 z-[65] mx-auto max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900 shadow-lg sm:bottom-6"><span className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0" />Some account features may be unavailable: {error}</span></div>}
         <div className="fixed bottom-24 right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 sm:bottom-6 sm:right-6" aria-live="polite">{toasts.map((item) => <div key={item.id} className={`toast rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg ${item.kind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : item.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-soft bg-card text-primary'}`}>{item.text}</div>)}</div>
@@ -134,7 +129,6 @@ export function App() {
           {composerOpen && <PostComposer open onClose={() => setComposerOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
           {profileOpen && <ProfileDialog open onClose={() => setProfileOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
           {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} onToast={toast} />}
-          {randomChatOpen && <RandomChat onClose={() => setRandomChatOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
         </Suspense>
       </div>
     </RealtimeProvider>
@@ -179,18 +173,16 @@ function Preloader() {
   return <div className="fixed inset-0 z-[200] flex flex-col items-center justify-center bg-gradient-to-br from-[var(--bg)] to-[var(--bg2)]"><div className="relative"><div className="flex h-24 w-24 items-center justify-center rounded-[28px] bg-gradient-to-br from-purple-600 to-indigo-700 text-5xl shadow-xl">👁️</div><div className="absolute -inset-3 animate-spin rounded-[32px] border-2 border-dashed border-purple-300" style={{ animationDuration: '8s' }} /></div><h1 className="mt-6 font-grotesk text-3xl font-bold tracking-tight">UNSEEN</h1><p className="mt-1 text-sm font-medium tracking-widest text-muted">DUMKA ENGINEERING COLLEGE</p><div className="mt-6 flex gap-2"><span className="h-2 w-2 animate-bounce rounded-full bg-purple-500" /><span className="h-2 w-2 animate-bounce rounded-full bg-purple-400" style={{ animationDelay: '.15s' }} /><span className="h-2 w-2 animate-bounce rounded-full bg-pink-400" style={{ animationDelay: '.3s' }} /></div><p className="mt-4 text-xs font-medium text-faint">Jo campus mein nahi bol paate, yahan bol do…</p></div>;
 }
 
-function MobileNav({ onHome, onExplore, onChat, onCreate, onMailbox, onProfile }: { onHome: () => void; onExplore: () => void; onChat: () => void; onCreate: () => void; onMailbox: () => void; onProfile: () => void }) {
-  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] sm:hidden" aria-label="Quick navigation"><div className="glass flex items-center justify-around border-t border-soft px-2 pb-3 pt-2">
+function MobileNav({ onHome, onExplore, onCreate, onProfile }: { onHome: () => void; onExplore: () => void; onCreate: () => void; onProfile: () => void }) {
+  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="glass flex items-center justify-around border-t border-soft px-2 pb-3 pt-2">
     <button type="button" onClick={onHome} className="flex flex-col items-center gap-1 px-2 py-1 text-unseen-600"><Home size={20} /><span className="text-[10px] font-bold">Home</span></button>
     <button type="button" onClick={onExplore} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><Compass size={20} /><span className="text-[10px] font-bold">Explore</span></button>
-    <button type="button" onClick={onChat} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><MessageCircle size={20} /><span className="text-[10px] font-bold">Chat</span></button>
     <button type="button" onClick={onCreate} aria-label="Drop a secret" className="btn-primary -mt-7 flex h-14 w-14 items-center justify-center rounded-full border-4 border-[var(--bg)] shadow-lg"><Plus size={24} /></button>
-    <button type="button" onClick={onMailbox} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><Mail size={20} /><span className="text-[10px] font-bold">Mailbox</span></button>
     <button type="button" onClick={onProfile} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><UserRound size={20} /><span className="text-[10px] font-bold">Ghost</span></button>
   </div></nav>;
 }
 
-function SafetySection({ onOpenMailbox }: { onOpenMailbox: () => void }) {
+function SafetySection() {
   const items = [
     { emoji: '🚫', title: 'No Real Names', text: 'Avoid sharing names, photos, phone numbers or private room details.', color: 'from-red-500 to-orange-500' },
     { emoji: '🚩', title: 'Report in 1 Tap', text: 'Report harassment, spam, or personal information. Moderators review each report.', color: 'from-violet-500 to-indigo-500' },
@@ -199,7 +191,7 @@ function SafetySection({ onOpenMailbox }: { onOpenMailbox: () => void }) {
   ];
   return <section id="safety" className="mx-auto max-w-7xl px-4 py-16 sm:px-6"><div className="text-center"><div className="inline-flex items-center gap-2 rounded-full border border-soft bg-card px-4 py-1.5 text-xs font-bold tracking-[.2em] text-emerald-600 soft">🛡️ SAFETY FIRST · STRICT ANTI-DOXXING</div><h2 className="mt-3 font-grotesk text-3xl font-bold sm:text-[42px]">Anonymous ka matlab <span className="grad-text">responsible.</span></h2></div>
     <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{items.map((item) => <article key={item.title} className="card p-6"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br ${item.color} text-xl text-white`}>{item.emoji}</div><h3 className="mt-3 font-grotesk font-bold">{item.title}</h3><p className="mt-1 text-[13px] font-medium leading-relaxed text-muted">{item.text}</p></article>)}</div>
-    <div className="card mt-4 flex flex-col items-center justify-between gap-4 p-5 sm:flex-row" style={{ background: 'linear-gradient(135deg,var(--surface),var(--bg2))' }}><div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-full text-2xl" style={{ background: 'linear-gradient(135deg,#FDE68A,#FCA5A5)' }}>🦉</div><div className="text-sm"><b>Feeling low? Baat karna zaroori hai.</b><br /><span className="font-medium text-muted">Reach out to campus support or someone you trust. You do not have to handle it alone.</span></div></div><button type="button" onClick={onOpenMailbox} className="chip whitespace-nowrap rounded-full px-5 py-2.5 text-xs font-bold">Talk Anonymously 💜</button></div>
+    <div className="card mt-4 flex items-center gap-3 p-5" style={{ background: 'linear-gradient(135deg,var(--surface),var(--bg2))' }}><div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-2xl" style={{ background: 'linear-gradient(135deg,#FDE68A,#FCA5A5)' }}>🦉</div><div className="text-sm"><b>Feeling low? Baat karna zaroori hai.</b><br /><span className="font-medium text-muted">Reach out to campus support or someone you trust. You do not have to handle it alone.</span></div></div>
   </section>;
 }
 

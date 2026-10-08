@@ -21,7 +21,7 @@ The first account is created with the one-time administrator invitation supplied
 
 ## Features
 
-The app includes the campus feed, anonymous profiles, image posts and uploads, likes, comments, reports, polls, spotted messages, mailbox, random chat, moderation, and an admin panel. Feed pages are fetched incrementally; media is compressed in the browser and stored in the private `unseen-media` bucket. Realtime subscriptions update affected content without polling.
+The app includes the campus feed, anonymous profiles, image posts and uploads, likes, comments, reports, polls, spotted messages, moderation, and an admin panel. Feed pages are fetched incrementally; media is compressed in the browser and stored in the private `unseen-media` bucket. Realtime subscriptions update affected content without polling.
 
 Privileged operations stay in the `auth`, `account`, and `admin` Edge Functions. Database and Storage access remains protected by RLS. Never put a Supabase secret or service-role key in a `VITE_*` variable.
 

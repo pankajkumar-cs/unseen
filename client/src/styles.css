@@ -26,6 +26,8 @@ button, input, textarea, select { font: inherit; }
 button { touch-action: manipulation; }
 img { max-width: 100%; }
 .site-main { padding-top: 68px; }
+.site-header-surface { box-shadow: 0 8px 28px rgba(36, 22, 65, .075); }
+.site-search-panel { background: color-mix(in srgb, var(--surface) 94%, transparent); box-shadow: 0 16px 32px rgba(36, 22, 65, .12); }
 .feed-two-col { display: grid; grid-template-columns: minmax(0, 1fr) 300px; align-items: start; gap: 1.25rem; }
 .feed-post-image { display: block; max-height: 34rem; width: 100%; object-fit: cover; border-radius: 1rem; }
 .meme-card { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
@@ -37,7 +39,7 @@ img { max-width: 100%; }
 @media (prefers-reduced-motion: reduce) { .meme-swipe-left, .meme-swipe-right { animation-duration: .01ms; } }
 .skeleton { background: linear-gradient(90deg, var(--surface2), rgba(124,58,237,.08), var(--surface2)); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 .toast-enter { animation: toastIn .35s cubic-bezier(.34,1.56,.64,1); }
-@media (max-width: 639px) {
+@media (max-width: 1023px) {
   .bottom-nav > div { padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px)); }
   .modal-card { -webkit-overflow-scrolling: touch; }
 }
