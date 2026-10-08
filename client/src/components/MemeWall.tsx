@@ -47,6 +47,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
   useEffect(() => { void loadMemes(true); }, [loadMemes]);
 
   useRealtime((event) => {
+    if (event.type === 'system:reconnected') { void loadMemes(true); return; }
     const id = event.payload.id;
     if (event.type === 'like:change' && typeof id === 'string' && typeof event.payload.likes === 'number') {
       setMemes((current) => current.map((post) => post.id === id ? { ...post, likes: event.payload.likes as number } : post));

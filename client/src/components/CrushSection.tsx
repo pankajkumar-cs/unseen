@@ -25,6 +25,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
   useEffect(() => { void refresh(); }, []);
 
   useRealtime((event) => {
+    if (event.type === 'system:reconnected') { void refresh(); return; }
     if (!event.type.startsWith('crush:')) return;
     if (event.type === 'crush:deleted') {
       const id = event.payload.id;
@@ -68,7 +69,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
             {item.location && <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-pink-50 px-2.5 py-1 text-[11px] font-bold text-pink-700"><MapPin size={12} />{item.location}</div>}
             {item.message && <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-muted">“{item.message}”</p>}
             <div className="mt-2 text-[11px] font-bold text-faint">{item.emoji} {item.author} (anonymous)</div>
-            <div className="mt-4 flex gap-2"><button type="button" onClick={() => void react(item, 'ship')} className="flex-1 rounded-full py-2.5 text-xs font-bold text-white transition hover:scale-[1.02]" style={{ background: 'linear-gradient(135deg,#be123c,#9f1239)' }}><Ship size={13} className="mr-1 inline" />Ship · {item.ships}</button><button type="button" onClick={() => void react(item, 'blush')} className="flex-1 rounded-full bg-pink-100 py-2.5 text-xs font-bold text-pink-700 transition hover:scale-[1.02]"><Heart size={13} className="mr-1 inline" />Same · {item.blushes}</button></div>
+            <div className="mt-4 flex gap-2"><button type="button" onClick={() => void react(item, 'ship')} className="flex min-h-11 flex-1 items-center justify-center rounded-full py-2.5 text-xs font-bold text-white transition hover:scale-[1.02]" style={{ background: 'linear-gradient(135deg,#be123c,#9f1239)' }}><Ship size={13} className="mr-1 inline" />Ship · {item.ships}</button><button type="button" onClick={() => void react(item, 'blush')} className="flex min-h-11 flex-1 items-center justify-center rounded-full bg-pink-100 py-2.5 text-xs font-bold text-pink-700 transition hover:scale-[1.02]"><Heart size={13} className="mr-1 inline" />Same · {item.blushes}</button></div>
           </article>)}
         </div>}
       </div>

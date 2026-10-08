@@ -28,6 +28,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
 
   useEffect(() => { void refresh(); }, []);
   useRealtime((event) => {
+    if (event.type === 'system:reconnected') { void refresh(); return; }
     if (event.type.startsWith('poll:')) void refresh();
   });
 

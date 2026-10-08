@@ -50,7 +50,7 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
   return (
     <header className="fixed inset-x-0 top-0 z-[60]">
       <div className="site-header-surface glass border-b border-soft">
-        <div className="mx-auto grid h-16 max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-2 px-3 sm:gap-4 sm:px-5 2xl:px-6">
+        <div className="site-header-inner mx-auto grid h-16 max-w-7xl grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 px-3 sm:gap-4 sm:px-5 2xl:px-6">
           <a href="#top" className="flex min-w-0 items-center gap-2.5 sm:gap-3" aria-label="UNSEEN home">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] shadow-md sm:h-11 sm:w-11" style={{ background: 'linear-gradient(135deg,#7C3AED,#4F46E5)' }}>
               <svg viewBox="0 0 48 48" className="h-7 w-7" aria-hidden="true">
@@ -75,18 +75,18 @@ export function Navbar({ onOpenAuth, onOpenComposer, onOpenAdmin, onOpenProfile,
           </nav>
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
-            <button type="button" onClick={() => { const opening = !searchOpen; setSearchOpen(opening); if (!opening) onSearch(''); }} className="chip flex h-10 w-10 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500" aria-label={searchOpen ? 'Close search' : 'Search posts'} aria-expanded={searchOpen} aria-controls="global-search-panel">
-              {searchOpen ? <X size={18} /> : <Search size={18} />}
+            <button type="button" onClick={() => { const opening = !searchOpen; setSearchOpen(opening); if (!opening) onSearch(''); }} className="chip flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-10" aria-label={searchOpen ? 'Close search' : 'Search posts'} aria-expanded={searchOpen} aria-controls="global-search-panel">
+              {searchOpen ? <X size={19} /> : <Search size={19} />}
             </button>
             {profile?.role === 'ADMIN' && (
-              <button type="button" onClick={onOpenAdmin} className="chip hidden h-10 w-10 items-center justify-center rounded-full sm:flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500" title="Admin dashboard" aria-label="Admin dashboard"><ShieldCheck size={18} /></button>
+              <button type="button" onClick={onOpenAdmin} className="chip hidden h-11 w-11 items-center justify-center rounded-full sm:flex focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-10" title="Admin dashboard" aria-label="Admin dashboard"><ShieldCheck size={19} /></button>
             )}
-            <button type="button" onClick={() => profile?.isRegistered ? onOpenProfile() : onOpenAuth('login')} className="flex h-10 max-w-[180px] items-center gap-2 rounded-full border border-soft bg-white/45 px-1.5 text-sm font-semibold transition hover:border-purple-200 hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 sm:px-2" title={profile?.isRegistered ? 'Open anonymous profile' : 'Sign in'}>
+            <button type="button" onClick={() => profile?.isRegistered ? onOpenProfile() : onOpenAuth('login')} className="flex h-11 max-w-[180px] items-center gap-2 rounded-full border border-soft bg-white/45 px-1.5 text-sm font-semibold transition hover:border-purple-200 hover:bg-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 sm:px-2 xl:h-10" title={profile?.isRegistered ? 'Open anonymous profile' : 'Sign in'} aria-label={profile?.isRegistered ? 'Open anonymous profile' : 'Sign in'}>
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-base" style={{ background: profile?.color ?? '#FEF3C7' }}>{profile?.emoji ?? '👻'}</span>
               <span className="hidden truncate xl:block">{profile?.isRegistered ? profile.display_name.replace(/^Anonymous\s+/, '') : 'Sign in'}</span>
               {!profile?.isRegistered && <LogIn size={15} className="xl:hidden" />}
             </button>
-            <button type="button" onClick={onOpenComposer} className="btn-primary flex h-10 w-10 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-auto xl:gap-2 xl:px-4 xl:text-sm xl:font-bold" aria-label="Create a post"><Plus size={18} /><span className="hidden xl:inline">Confess</span></button>
+            <button type="button" onClick={onOpenComposer} className="btn-primary flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 xl:h-10 xl:w-auto xl:gap-2 xl:px-4 xl:text-sm xl:font-bold" aria-label="Create a post"><Plus size={19} /><span className="hidden xl:inline">Confess</span></button>
           </div>
         </div>
       </div>

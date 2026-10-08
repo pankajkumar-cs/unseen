@@ -69,32 +69,42 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
   const [error, setError] = useState<string | null>(null);
   const sentinel = useRef<HTMLDivElement>(null);
   const generation = useRef(0);
+  const loadMoreGeneration = useRef(0);
   const loadingMoreRef = useRef(false);
   const { profile } = useAuth();
 
-  useEffect(() => {
+  const loadFirstPage = useCallback(async () => {
     const requestId = ++generation.current;
+    loadMoreGeneration.current += 1;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
     setLoading(true);
     setError(null);
     setPosts([]);
     setCursor(null);
     setHasMore(true);
-    void loadPostPage(category, null).then((page) => {
+    try {
+      const page = await loadPostPage(category, null);
       if (requestId !== generation.current) return;
       setPosts(page.posts);
       setCursor(page.cursor);
       setHasMore(page.posts.length === 20);
-    }).catch((cause: unknown) => {
+    } catch (cause: unknown) {
       if (requestId === generation.current) setError(getUserFacingError(cause, 'The campus feed could not load.'));
-    }).finally(() => {
+    } finally {
       if (requestId === generation.current) setLoading(false);
-    });
-    return () => { generation.current += 1; };
+    }
   }, [category]);
+
+  useEffect(() => {
+    void loadFirstPage();
+    return () => { generation.current += 1; };
+  }, [loadFirstPage]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !cursor || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
+    const moreRequestId = ++loadMoreGeneration.current;
     setLoadingMore(true);
     const requestId = generation.current;
     try {
@@ -109,8 +119,10 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
     } catch (cause) {
       onToast(getUserFacingError(cause, 'More posts could not load.'), 'error');
     } finally {
-      if (requestId === generation.current) setLoadingMore(false);
-      loadingMoreRef.current = false;
+      if (moreRequestId === loadMoreGeneration.current) {
+        setLoadingMore(false);
+        loadingMoreRef.current = false;
+      }
     }
   }, [category, cursor, hasMore, onToast]);
 
@@ -125,6 +137,10 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
   }, [hasMore, loading, loadMore]);
 
   useRealtime((event) => {
+    if (event.type === 'system:reconnected') {
+      void loadFirstPage();
+      return;
+    }
     if (event.type === 'like:change') {
       const id = event.payload.id;
       const likes = event.payload.likes;
@@ -362,7 +378,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   };
 
   return (
-    <article id={`post-${post.id}`} className="card overflow-hidden p-5" aria-label={`${post.category} post`}>
+    <article id={`post-${post.id}`} className="card overflow-hidden p-4 sm:p-5" aria-label={`${post.category} post`}>
       <div className="flex items-start gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: post.authorColor }}>{post.authorEmoji}</span>
         <div className="min-w-0 flex-1">
@@ -377,7 +393,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
             {post.branch && <span>{post.branch}</span>}
           </div>
         </div>
-        {post.owned && <button type="button" onClick={() => void deletePost()} className="chip flex h-9 w-9 shrink-0 items-center justify-center rounded-full" title="Remove your post" aria-label="Remove your post"><Trash2 size={16} /></button>}
+        {post.owned && <button type="button" onClick={() => void deletePost()} className="chip flex h-11 w-11 shrink-0 items-center justify-center rounded-full" title="Remove your post" aria-label="Remove your post"><Trash2 size={16} /></button>}
       </div>
 
       <p className="mt-4 whitespace-pre-wrap break-words text-[14px] font-medium leading-relaxed">{post.body}</p>
@@ -393,15 +409,15 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
         </section>
       </div>}
 
-      <div className="mt-4 flex items-center justify-between border-t border-soft pt-3">
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => void changeLike()} aria-label={post.liked ? 'Unlike post' : 'Like post'} aria-pressed={post.liked} className="chip flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold"><Heart size={16} fill={post.liked ? 'currentColor' : 'none'} className={`transition-all duration-200 ${post.liked ? 'scale-110 text-rose-600' : 'text-muted'}`} /> <span>{post.likes}</span><span className="hidden xs:inline">Like</span></button>
-          <button type="button" onClick={() => setCommentsOpen((open) => !open)} aria-expanded={commentsOpen} className="chip flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold"><MessageCircle size={16} /><span>{post.commentsCount}</span><span className="hidden xs:inline">Reply</span></button>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-soft pt-3">
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={() => void changeLike()} aria-label={post.liked ? 'Unlike post' : 'Like post'} aria-pressed={post.liked} className="chip flex items-center gap-1 rounded-full px-2 py-2 text-xs font-bold"><Heart size={16} fill={post.liked ? 'currentColor' : 'none'} className={`transition-all duration-200 ${post.liked ? 'scale-110 text-rose-600' : 'text-muted'}`} /> <span>{post.likes}</span><span className="hidden xs:inline">Like</span></button>
+          <button type="button" onClick={() => setCommentsOpen((open) => !open)} aria-expanded={commentsOpen} className="chip flex items-center gap-1 rounded-full px-2 py-2 text-xs font-bold"><MessageCircle size={16} /><span>{post.commentsCount}</span><span className="hidden xs:inline">Reply</span></button>
         </div>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => setReportTarget({ type: 'post', id: null })} className="chip flex h-9 w-9 items-center justify-center rounded-full" aria-label="Report post"><Flag size={15} /></button>
-          <button type="button" onClick={() => void changeBookmark()} aria-pressed={post.bookmarked} className={`bookmark-btn chip flex h-9 w-9 items-center justify-center rounded-full ${post.bookmarked ? 'saved' : ''}`} aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark post'}><Bookmark size={15} /></button>
-          <button type="button" onClick={() => void share()} className="chip flex h-9 w-9 items-center justify-center rounded-full" aria-label="Share post"><Share2 size={15} /></button>
+        <div className="flex items-center gap-0.5">
+          <button type="button" onClick={() => setReportTarget({ type: 'post', id: null })} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Report post"><Flag size={15} /></button>
+          <button type="button" onClick={() => void changeBookmark()} aria-pressed={post.bookmarked} className={`bookmark-btn chip flex h-11 w-11 items-center justify-center rounded-full ${post.bookmarked ? 'saved' : ''}`} aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark post'}><Bookmark size={15} /></button>
+          <button type="button" onClick={() => void share()} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Share post"><Share2 size={15} /></button>
         </div>
       </div>
 
@@ -416,8 +432,8 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
                 <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{comment.body}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => setReportTarget({ type: 'comment', id: comment.id })} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Report reply"><Flag size={13} /></button>
-                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => setComments((current) => current.filter((item) => item.id !== comment.id))).catch((cause: unknown) => onToast(getUserFacingError(cause, 'Reply could not be removed.'), 'error')); }} className="flex h-8 w-8 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={13} /></button>}
+                <button type="button" onClick={() => setReportTarget({ type: 'comment', id: comment.id })} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Report reply"><Flag size={15} /></button>
+                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => setComments((current) => current.filter((item) => item.id !== comment.id))).catch((cause: unknown) => onToast(getUserFacingError(cause, 'Reply could not be removed.'), 'error')); }} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={15} /></button>}
               </div>
             </div>)}
             {!commentsLoading && comments.length === 0 && <p className="py-3 text-center text-xs text-muted">No replies yet. Keep it kind and be the first.</p>}
@@ -425,11 +441,11 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
           {profile?.isRegistered ? <form onSubmit={(event) => void addComment(event)} className="mt-4 flex gap-2">
             <label className="sr-only" htmlFor={`comment-${post.id}`}>Write an anonymous reply</label>
             <input id={`comment-${post.id}`} value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={500} placeholder="Reply anonymously…" className="input-themed min-w-0 flex-1 rounded-full px-4 py-2.5 text-[13px] font-medium" />
-            <button disabled={pending || !commentText.trim()} className="btn-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send reply"><Send size={15} /></button>
+            <button disabled={pending || !commentText.trim()} className="btn-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send reply"><Send size={15} /></button>
           </form> : <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-muted">
             <span>Sign in or join to reply anonymously.</span>
-            <button type="button" onClick={() => onOpenAuth('login')} className="font-bold text-unseen-700 underline">Sign in</button>
-            <button type="button" onClick={() => onOpenAuth('register')} className="font-bold text-unseen-700 underline">Join UNSEEN</button>
+            <button type="button" onClick={() => onOpenAuth('login')} className="inline-flex min-h-11 items-center rounded-full px-2 font-bold text-unseen-700 underline">Sign in</button>
+            <button type="button" onClick={() => onOpenAuth('register')} className="inline-flex min-h-11 items-center rounded-full px-2 font-bold text-unseen-700 underline">Join UNSEEN</button>
           </div>}
         </div>
       )}

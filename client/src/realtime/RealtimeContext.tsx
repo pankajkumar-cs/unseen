@@ -6,6 +6,8 @@ export interface RealtimeEvent {
   payload: Record<string, unknown>;
 }
 
+export type RealtimeConnectionStatus = 'connecting' | 'connected' | 'reconnecting';
+
 type RealtimeListener = (event: RealtimeEvent) => void;
 interface RealtimeContextValue {
   subscribe: (listener: RealtimeListener) => () => void;
@@ -13,6 +15,7 @@ interface RealtimeContextValue {
 }
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 const OnlineCountContext = createContext<number | null | undefined>(undefined);
+const RealtimeStatusContext = createContext<RealtimeConnectionStatus | undefined>(undefined);
 
 const publicEvents = [
   'post:new', 'post:updated', 'post:deleted', 'post:moderated',
@@ -23,6 +26,7 @@ const publicEvents = [
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const listeners = useRef(new Set<RealtimeListener>());
   const [onlineCount, setOnlineCount] = useState<number | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<RealtimeConnectionStatus>('connecting');
 
   const publish = useCallback((event: RealtimeEvent) => {
     listeners.current.forEach((listener) => {
@@ -32,9 +36,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const client = requireSupabase();
+    let active = true;
+    let hasConnected = false;
     let channel = client.channel('unseen:feed', { config: { private: false, broadcast: { self: false } } });
     channel = channel.on('presence', { event: 'sync' }, () => {
-      setOnlineCount(Object.keys(channel.presenceState()).length);
+      if (active) setOnlineCount(Object.keys(channel.presenceState()).length);
     });
     for (const eventName of publicEvents) {
       channel = channel.on('broadcast', { event: eventName }, (message) => {
@@ -45,15 +51,24 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     }
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
+        if (!active) return;
+        setConnectionStatus('connected');
+        if (hasConnected) publish({ type: 'system:reconnected', payload: {} });
+        hasConnected = true;
         void channel.track({ active: true }).then((result) => {
-          if (result !== 'ok') setOnlineCount(null);
-        }).catch(() => setOnlineCount(null));
+          if (active && result !== 'ok') setOnlineCount(null);
+        }).catch(() => { if (active) setOnlineCount(null); });
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        setOnlineCount(null);
+        if (active) {
+          setConnectionStatus('reconnecting');
+          setOnlineCount(null);
+        }
       }
     });
     return () => {
+      active = false;
       setOnlineCount(null);
+      setConnectionStatus('connecting');
       void client.removeChannel(channel);
     };
   }, [publish]);
@@ -65,7 +80,9 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ subscribe, publish }), [publish, subscribe]);
   return (
     <RealtimeContext.Provider value={value}>
-      <OnlineCountContext.Provider value={onlineCount}>{children}</OnlineCountContext.Provider>
+      <RealtimeStatusContext.Provider value={connectionStatus}>
+        <OnlineCountContext.Provider value={onlineCount}>{children}</OnlineCountContext.Provider>
+      </RealtimeStatusContext.Provider>
     </RealtimeContext.Provider>
   );
 }
@@ -88,4 +105,10 @@ export function useOnlineCount() {
   const onlineCount = useContext(OnlineCountContext);
   if (onlineCount === undefined) throw new Error('useOnlineCount must be used within RealtimeProvider.');
   return onlineCount;
+}
+
+export function useRealtimeStatus() {
+  const status = useContext(RealtimeStatusContext);
+  if (status === undefined) throw new Error('useRealtimeStatus must be used within RealtimeProvider.');
+  return status;
 }

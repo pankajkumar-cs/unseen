@@ -1,12 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { Compass, Home, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { Compass, Home, Plus, RotateCw, ShieldCheck, UserRound } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { CrushSection } from '../components/CrushSection';
 import { Navbar } from '../components/Navbar';
 import { PollSection } from '../components/PollSection';
 import { PostFeed } from '../components/PostFeed';
 import { PulseSection } from '../components/PulseSection';
-import { RealtimeProvider, useOnlineCount } from '../realtime/RealtimeContext';
+import { RealtimeProvider, useOnlineCount, useRealtimeStatus } from '../realtime/RealtimeContext';
 import type { PostCategory } from '../types/database';
 
 const AuthDialog = lazy(() => import('../components/AuthDialog').then((module) => ({ default: module.AuthDialog })));
@@ -18,7 +18,7 @@ const MemeWall = lazy(() => import('../components/MemeWall').then((module) => ({
 type Toast = { id: number; text: string; kind: 'success' | 'error' | 'info' };
 
 export function App() {
-  const { configured, loading, error, profile } = useAuth();
+  const { configured, loading, error, profile, retryConnection, retrying } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register' | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -62,7 +62,7 @@ export function App() {
 
   return (
     <RealtimeProvider>
-      <div id="top" className="relative min-h-screen overflow-clip pb-20 lg:pb-0">
+      <div id="top" className="mobile-page relative min-h-screen overflow-clip">
         <div ref={progressBar} id="scroll-progress" className="fixed left-0 top-0 z-[100] h-[3px] w-0 bg-gradient-to-r from-purple-700 via-pink-500 to-amber-400" />
         <Navbar
           onOpenAuth={setAuthMode}
@@ -122,8 +122,8 @@ export function App() {
 
         <MobileNav onHome={() => window.scrollTo({ top: 0, behavior: 'smooth' })} onExplore={() => document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' })} onCreate={() => setComposerOpen(true)} onProfile={() => profile?.isRegistered ? setProfileOpen(true) : setAuthMode('login')} />
 
-        {error && <div role="status" className="fixed bottom-24 left-4 right-4 z-[65] mx-auto max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900 shadow-lg sm:bottom-6"><span className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0" />Some account features may be unavailable: {error}</span></div>}
-        <div className="fixed bottom-24 right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 sm:bottom-6 sm:right-6" aria-live="polite">{toasts.map((item) => <div key={item.id} className={`toast rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg ${item.kind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : item.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-soft bg-card text-primary'}`}>{item.text}</div>)}</div>
+        {error && <div role="status" className="mobile-overlay-offset fixed left-4 right-4 z-[65] mx-auto max-w-lg rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900 shadow-lg"><div className="flex flex-wrap items-center justify-between gap-3"><span className="flex min-w-0 flex-1 items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0" />Some account features may be unavailable: {error}</span><button type="button" onClick={() => void retryConnection()} disabled={retrying} className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-full bg-amber-900 px-4 py-2 text-xs font-bold text-white disabled:opacity-60"><RotateCw size={14} className={retrying ? 'animate-spin' : ''} />{retrying ? 'Retrying…' : 'Try again'}</button></div></div>}
+        <div className="mobile-overlay-offset fixed right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 lg:right-6" aria-live="polite">{toasts.map((item) => <div key={item.id} className={`toast rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg ${item.kind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : item.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-soft bg-card text-primary'}`}>{item.text}</div>)}</div>
         <Suspense fallback={null}>
           {authMode && <AuthDialog mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />}
           {composerOpen && <PostComposer open onClose={() => setComposerOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
@@ -137,13 +137,22 @@ export function App() {
 
 function OnlineVisitorCount() {
   const onlineCount = useOnlineCount();
+  const connectionStatus = useRealtimeStatus();
+  const isConnected = connectionStatus === 'connected' && onlineCount !== null;
+  const label = connectionStatus === 'connecting'
+    ? 'Connecting to DECians…'
+    : connectionStatus === 'reconnecting'
+      ? 'Live updates reconnecting…'
+      : onlineCount === null
+        ? 'Live updates connected · online count unavailable'
+        : `${onlineCount} DECians online`;
   return (
     <div className="mt-5 inline-flex items-center gap-2.5 rounded-full border border-emerald-200 bg-white/75 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm backdrop-blur" role="status" aria-live="polite">
       <span className="relative flex h-2.5 w-2.5 shrink-0">
-        {onlineCount !== null && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />}
-        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${onlineCount === null ? 'bg-slate-400' : 'bg-emerald-500'}`} />
+        {isConnected && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />}
+        <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-500' : connectionStatus === 'reconnecting' ? 'bg-amber-500' : 'bg-slate-400'}`} />
       </span>
-      <span>{onlineCount === null ? 'Connecting to DECians…' : `${onlineCount} DECians online`}</span>
+      <span>{label}</span>
     </div>
   );
 }
@@ -174,11 +183,11 @@ function Preloader() {
 }
 
 function MobileNav({ onHome, onExplore, onCreate, onProfile }: { onHome: () => void; onExplore: () => void; onCreate: () => void; onProfile: () => void }) {
-  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="glass flex items-center justify-around border-t border-soft px-2 pb-3 pt-2">
-    <button type="button" onClick={onHome} className="flex flex-col items-center gap-1 px-2 py-1 text-unseen-600"><Home size={20} /><span className="text-[10px] font-bold">Home</span></button>
-    <button type="button" onClick={onExplore} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><Compass size={20} /><span className="text-[10px] font-bold">Explore</span></button>
+  return <nav className="bottom-nav fixed inset-x-0 bottom-0 z-[60] lg:hidden" aria-label="Quick navigation"><div className="glass grid grid-cols-4 items-center justify-items-center gap-1 border-t border-soft px-2 pb-3 pt-2">
+    <button type="button" onClick={onHome} aria-label="Go to home" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-unseen-600"><Home size={20} /><span className="text-[10px] font-bold">Home</span></button>
+    <button type="button" onClick={onExplore} aria-label="Explore campus posts" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-muted"><Compass size={20} /><span className="text-[10px] font-bold">Explore</span></button>
     <button type="button" onClick={onCreate} aria-label="Drop a secret" className="btn-primary -mt-7 flex h-14 w-14 items-center justify-center rounded-full border-4 border-[var(--bg)] shadow-lg"><Plus size={24} /></button>
-    <button type="button" onClick={onProfile} className="flex flex-col items-center gap-1 px-2 py-1 text-muted"><UserRound size={20} /><span className="text-[10px] font-bold">Ghost</span></button>
+    <button type="button" onClick={onProfile} aria-label="Open your anonymous profile" className="flex h-11 w-full max-w-[76px] flex-col items-center justify-center gap-1 text-muted"><UserRound size={20} /><span className="text-[10px] font-bold">Ghost</span></button>
   </div></nav>;
 }
 

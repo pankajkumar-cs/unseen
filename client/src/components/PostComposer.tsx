@@ -122,7 +122,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
           </label>
           {file && previewUrl && <div className="relative overflow-hidden rounded-2xl border border-soft">
             <img src={previewUrl} alt="Preview of selected campus image" className="max-h-64 w-full object-cover" />
-            <button type="button" onClick={() => changeFile(null)} disabled={busy} className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-base shadow" aria-label="Remove selected image"><Trash2 size={16} /></button>
+            <button type="button" onClick={() => changeFile(null)} disabled={busy} className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-white/90 text-base shadow" aria-label="Remove selected image"><Trash2 size={16} /></button>
             {uploadStage && <div className="absolute inset-x-0 bottom-0 bg-white/95 px-3 py-2"><div className="h-1.5 overflow-hidden rounded-full bg-purple-100"><div className="h-full rounded-full bg-purple-600 transition-[width]" style={{ width: `${progress ?? 0}%` }} /></div><p className="mt-1 text-[11px] font-semibold text-muted">{uploadStage === 'preparing' ? 'Optimizing image…' : `Uploading image · ${progress ?? 0}%`}</p></div>}
           </div>}
           <div className="flex flex-wrap items-center justify-between gap-3">

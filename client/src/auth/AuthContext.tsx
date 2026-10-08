@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
 import { getFunctionErrorMessage, getUserFacingError } from '../lib/errors';
@@ -22,10 +22,12 @@ interface AuthContextValue {
   session: Session | null;
   profile: ViewerProfile | null;
   error: string | null;
+  retrying: boolean;
   login: (username: string, password: string) => Promise<void>;
   register: (invitationCode: string, username: string, password: string, confirmPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  retryConnection: () => Promise<void>;
 }
 
 interface AuthEdgeResponse {
@@ -79,24 +81,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<ViewerProfile | null>(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [error, setError] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const hydrationVersion = useRef(0);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     const client = requireSupabase();
     let alive = true;
+    let lastObservedUserId: string | null = null;
     let hydrateTimer: ReturnType<typeof setTimeout> | undefined;
 
     const applySession = async (nextSession: Session | null) => {
       if (!alive) return;
+      const version = ++hydrationVersion.current;
+      lastObservedUserId = nextSession?.user.id ?? null;
       setSession(nextSession);
+      setRetrying(false);
+      setProfile((current) => nextSession && current?.userId === nextSession.user.id ? current : null);
       setError(null);
       try {
         const nextProfile = await hydrateViewer(nextSession);
-        if (alive) setProfile(nextProfile);
+        if (alive && version === hydrationVersion.current) setProfile(nextProfile);
       } catch (cause) {
-        if (alive) setError(getUserFacingError(cause, 'Could not load your anonymous profile. Please refresh and try again.'));
+        if (alive && version === hydrationVersion.current) setError(getUserFacingError(cause, 'Could not load your anonymous profile. Check your connection and try again.'));
       } finally {
-        if (alive) setLoading(false);
+        if (alive && version === hydrationVersion.current) setLoading(false);
       }
     };
 
@@ -118,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (anonymousError) throw anonymousError;
         await applySession(anonymousData.session);
       } catch (cause) {
-        if (!alive) return;
+        if (!alive || lastObservedUserId) return;
         setError(getUserFacingError(cause, 'Could not connect to UNSEEN. Check your internet connection and refresh.'));
         setLoading(false);
       }
@@ -175,11 +184,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(await hydrateViewer(data.session));
   };
 
-  const refreshProfile = async () => setProfile(await hydrateViewer(session));
+  const refreshProfile = async () => {
+    try {
+      const nextProfile = await hydrateViewer(session);
+      setProfile(nextProfile);
+      setError(null);
+    } catch (cause) {
+      setError(getUserFacingError(cause, 'Could not load your anonymous profile. Check your connection and try again.'));
+    }
+  };
+
+  const retryConnection = async () => {
+    setRetrying(true);
+    const version = ++hydrationVersion.current;
+    try {
+      const client = requireSupabase();
+      const { data, error: sessionError } = await client.auth.getSession();
+      if (sessionError) throw sessionError;
+      let nextSession = data.session;
+      if (!nextSession) {
+        const { data: anonymousData, error: anonymousError } = await client.auth.signInAnonymously();
+        if (anonymousError) throw anonymousError;
+        nextSession = anonymousData.session;
+      }
+      if (!nextSession) throw new Error('UNSEEN could not start a campus session. Try again.');
+      const nextProfile = await hydrateViewer(nextSession);
+      if (version !== hydrationVersion.current) return;
+      setSession(nextSession);
+      setProfile(nextProfile);
+      setError(null);
+    } catch (cause) {
+      if (version === hydrationVersion.current) setError(getUserFacingError(cause, 'Could not connect to UNSEEN. Check your connection and try again.'));
+    } finally {
+      if (version === hydrationVersion.current) setRetrying(false);
+    }
+  };
 
   const value = useMemo<AuthContextValue>(() => ({
     configured: isSupabaseConfigured,
     loading,
+    retrying,
     session,
     profile,
     error,
@@ -187,7 +231,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
     logout,
     refreshProfile,
-  }), [loading, session, profile, error]);
+    retryConnection,
+  }), [loading, retrying, session, profile, error]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

@@ -41,6 +41,10 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
 
   useEffect(() => { void load(true); }, [load]);
   useRealtime((event) => {
+    if (event.type === 'system:reconnected') {
+      void load(true);
+      return;
+    }
     if (event.type === 'post:new' || event.type === 'post:updated' || event.type === 'like:change'
       || event.type === 'post:deleted' || event.type === 'post:moderated') {
       void load(true);

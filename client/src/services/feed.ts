@@ -267,6 +267,7 @@ function uploadWithProgress(path: string, file: File, session: Session, onProgre
   const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
   return new Promise<void>((resolve, reject) => {
     const request = new XMLHttpRequest();
+    request.timeout = 90_000;
     request.open('POST', `${url}/storage/v1/object/unseen-media/${path.split('/').map(encodeURIComponent).join('/')}`);
     request.setRequestHeader('apikey', key);
     request.setRequestHeader('Authorization', `Bearer ${session.access_token}`);
@@ -276,6 +277,8 @@ function uploadWithProgress(path: string, file: File, session: Session, onProgre
       if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
     };
     request.onerror = () => reject(new Error('Image upload failed. Check your connection and try again.'));
+    request.ontimeout = () => reject(new Error('Image upload took too long. Check your connection and try again.'));
+    request.onabort = () => reject(new Error('Image upload was interrupted. Select the image again to retry.'));
     request.onload = () => {
       if (request.status >= 200 && request.status < 300) {
         onProgress(100);
@@ -284,8 +287,8 @@ function uploadWithProgress(path: string, file: File, session: Session, onProgre
       }
       let message = 'Image upload failed. Please try again.';
       try {
-        const response = JSON.parse(request.responseText) as { message?: string; error?: string };
-        message = response.message ?? response.error ?? message;
+        const response = JSON.parse(request.responseText) as { message?: unknown; error?: unknown };
+        message = typeof response.message === 'string' ? response.message : typeof response.error === 'string' ? response.error : message;
       } catch { /* Keep the safe fallback for non-JSON storage errors. */ }
       reject(new Error(message));
     };
