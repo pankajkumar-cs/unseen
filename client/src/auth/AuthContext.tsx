@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
 import { getFunctionErrorMessage, getUserFacingError } from '../lib/errors';
-import type { AnonymousIdentityRow, ProfileRow } from '../types/database';
+import type { ProfileRow } from '../types/database';
 
 export interface ViewerProfile {
   userId: string;
@@ -62,16 +62,15 @@ async function hydrateViewer(session: Session | null): Promise<ViewerProfile | n
       moderation_status: account.moderation_status,
     };
   }
-  const { data: identityRows, error: identityError } = await client.rpc('ensure_anonymous_identity');
-  if (identityError) throw identityError;
-  const identity: AnonymousIdentityRow | undefined = identityRows?.[0];
-  if (!identity) return null;
+  let hash = 2166136261;
+  for (const character of session.user.id) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  const guestNumber = 100 + (hash >>> 0) % 900;
   return {
     userId: session.user.id,
-    display_name: identity.display_name,
-    emoji: identity.emoji,
-    color: identity.color,
-    ghost_id: identity.ghost_id,
+    display_name: `Anonymous Ghost #${guestNumber}`,
+    emoji: '👻',
+    color: '#EDE9FE',
+    ghost_id: null,
     isRegistered: false,
   };
 }
@@ -83,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
   const hydrationVersion = useRef(0);
+  const anonymousSessionFailed = useRef(false);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -95,9 +95,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!alive) return;
       const version = ++hydrationVersion.current;
       lastObservedUserId = nextSession?.user.id ?? null;
+      if (nextSession) anonymousSessionFailed.current = false;
       setSession(nextSession);
       setRetrying(false);
       setProfile((current) => nextSession && current?.userId === nextSession.user.id ? current : null);
+      if (!nextSession && anonymousSessionFailed.current) {
+        setError('Signed out, but could not start a visitor session. Check your connection and try again.');
+        setLoading(false);
+        return;
+      }
       setError(null);
       try {
         const nextProfile = await hydrateViewer(nextSession);
@@ -176,12 +182,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     const client = requireSupabase();
+    hydrationVersion.current += 1;
+    setLoading(true);
+    setError(null);
     const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
-    if (signOutError) throw signOutError;
-    const { data, error: anonymousError } = await client.auth.signInAnonymously();
-    if (anonymousError) throw anonymousError;
-    setSession(data.session);
-    setProfile(await hydrateViewer(data.session));
+    if (signOutError) {
+      setLoading(false);
+      setError(getUserFacingError(signOutError, 'Could not sign out. Please try again.'));
+      throw signOutError;
+    }
+    setSession(null);
+    setProfile(null);
+    try {
+      const { data, error: anonymousError } = await client.auth.signInAnonymously();
+      if (anonymousError) throw anonymousError;
+      if (!data.session) throw new Error('A visitor session could not be started.');
+      anonymousSessionFailed.current = false;
+      // The auth listener performs the only profile hydration for the new session.
+    } catch (cause) {
+      anonymousSessionFailed.current = true;
+      hydrationVersion.current += 1;
+      setSession(null);
+      setProfile(null);
+      setLoading(false);
+      const message = getUserFacingError(cause, 'Signed out, but could not start a visitor session. Check your connection and try again.');
+      setError(message);
+      throw new Error(message);
+    }
   };
 
   const refreshProfile = async () => {

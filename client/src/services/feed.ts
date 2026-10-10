@@ -248,10 +248,15 @@ export const MAX_POST_IMAGE_SOURCE_SIZE = 20 * 1024 * 1024;
 const MAX_POST_IMAGE_STORAGE_SIZE = 5 * 1024 * 1024;
 
 export async function compressImage(file: File): Promise<{ file: File; width: number; height: number }> {
+  if (/\.(?:heic|heif)$/i.test(file.name) || /image\/(?:heic|heif)/i.test(file.type)) {
+    throw new Error('HEIC/HEIF photos are not supported yet. Export the photo as JPG, PNG, or WebP and try again.');
+  }
   const allowed = new Set(['image/jpeg', 'image/png', 'image/webp']);
   if (!allowed.has(file.type)) throw new Error('Choose a JPG, PNG, or WebP image.');
   if (file.size > MAX_POST_IMAGE_SOURCE_SIZE) throw new Error('Images must be 20 MB or smaller.');
-  const bitmap = await createImageBitmap(file);
+  let bitmap: ImageBitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch { throw new Error('This image could not be opened. Export it as JPG, PNG, or WebP and try again.'); }
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   if (!context) {
@@ -340,7 +345,7 @@ export async function uploadPostImage(file: File, session: Session, onProgress: 
   const prepared = await compressImage(file);
   onPreparing?.();
   const ext = prepared.file.type === 'image/webp' ? 'webp' : prepared.file.type === 'image/png' ? 'png' : 'jpg';
-  const storagePath = `${crypto.randomUUID()}/${crypto.randomUUID()}.${ext}`;
+  const storagePath = `${session.user.id}/${crypto.randomUUID()}.${ext}`;
   await uploadWithProgress(storagePath, prepared.file, session, onProgress);
 
   const publicId = crypto.randomUUID();
@@ -357,13 +362,14 @@ export async function uploadPostImage(file: File, session: Session, onProgress: 
     await client.storage.from('unseen-media').remove([storagePath]);
     throw new Error(metadataError.message);
   }
-  const { data: signed, error: signedError } = await client.storage.from('unseen-media').createSignedUrl(storagePath, 3600);
-  if (signedError || !signed?.signedUrl) {
+  let signedUrl: string;
+  try { signedUrl = await refreshSignedImageUrl(storagePath); }
+  catch {
     await client.from('media').delete().eq('public_id', publicId);
     await client.storage.from('unseen-media').remove([storagePath]);
     throw new Error('The image was uploaded but could not be previewed. Please try again.');
   }
-  return { publicId, storagePath, signedUrl: signed.signedUrl, width: prepared.width, height: prepared.height, file: prepared.file };
+  return { publicId, storagePath, signedUrl, width: prepared.width, height: prepared.height, file: prepared.file };
 }
 
 export async function discardPostImage(media: UploadedMedia) {

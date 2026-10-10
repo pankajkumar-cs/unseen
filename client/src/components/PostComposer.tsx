@@ -22,7 +22,7 @@ interface PostComposerProps {
 
 function sanitizeText(value: string) {
   return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .replace(/\b\d{10}\b/g, 'XX-XXXXXX')
+    .replace(/(?<!\d)(?:\+?91[\s-]?)?(?:0[\s-]?)?[6-9](?:[\s-]?\d){9}(?!\d)/g, '[PHONE REDACTED]')
     .replace(/\b(?:room\s*(?:no)?\.?\s*\d+|hostel\s+\d+)\b/gi, '[LOCATION REDACTED]')
     .trim();
 }
@@ -33,6 +33,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
   const [body, setBody] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [usage, setUsage] = useState<number | null>(null);
+  const [dailyLimit, setDailyLimit] = useState<number | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<'preparing' | 'uploading' | null>(null);
   const [busy, setBusy] = useState(false);
@@ -44,11 +45,21 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
 
   useEffect(() => {
     if (!open || !profile?.isRegistered) return;
+    let active = true;
+    setUsage(null);
+    setDailyLimit(null);
     setUsageError(null);
-    void getPostUsage().then((row) => setUsage(row?.remaining ?? null)).catch((cause: unknown) => {
+    void getPostUsage().then((row) => {
+      if (!active) return;
+      setUsage(row?.remaining ?? null);
+      setDailyLimit(row?.daily_limit ?? null);
+    }).catch((cause: unknown) => {
+      if (!active) return;
       setUsage(null);
+      setDailyLimit(null);
       setUsageError(getUserFacingError(cause, 'Could not check today’s posting limit. It will be checked when you submit your post.'));
     });
+    return () => { active = false; };
   }, [open, profile?.isRegistered]);
 
   useEffect(() => {
@@ -63,6 +74,11 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
   const changeFile = (next: File | null) => {
     setError(null);
     if (!next) { setFile(null); return; }
+    if (/\.(?:heic|heif)$/i.test(next.name) || /image\/(?:heic|heif)/i.test(next.type)) {
+      setFile(null);
+      setError('HEIC/HEIF photos are not supported yet. Export the photo as JPG, PNG, or WebP and try again.');
+      return;
+    }
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(next.type)) { setFile(null); setError('Choose a JPG, PNG, or WebP image.'); return; }
     if (next.size > MAX_POST_IMAGE_SOURCE_SIZE) { setFile(null); setError('Images must be 20 MB or smaller.'); return; }
     setFile(next);
@@ -74,7 +90,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
     const cleanBody = sanitizeText(body);
     if (!cleanBody) { setError('Add a few words before posting.'); return; }
     if (cleanBody.length > 500) { setError('Posts can be up to 500 characters.'); return; }
-    if (usage === 0) { setError('You have used today’s five post slots. Come back tomorrow.'); return; }
+    if (usage === 0) { setError('You have used today’s shared post, poll, and spotted slots. Come back tomorrow.'); return; }
     setBusy(true);
     setError(null);
     let uploaded: UploadedMedia | null = null;
@@ -84,9 +100,13 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
         setUploadStage('preparing');
         uploaded = await uploadPostImage(file, session, setProgress, () => setUploadStage('uploading'));
       }
-      const created = await createPost(category, cleanBody, uploaded?.publicId ?? null);
+      await createPost(category, cleanBody, uploaded?.publicId ?? null);
       onCreated?.();
-      setUsage(Math.max(0, 5 - created.usage_count));
+      try {
+        const nextUsage = await getPostUsage();
+        setUsage(nextUsage?.remaining ?? null);
+        setDailyLimit(nextUsage?.daily_limit ?? null);
+      } catch { setUsage(null); }
       setBody('');
       setFile(null);
       onClose();
@@ -109,7 +129,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
           <div><div className="text-xs font-bold tracking-[.2em] text-unseen-600">DROP A SECRET</div><h2 id="composer-heading" className="mt-2 font-grotesk text-2xl font-bold">Speak anonymously.</h2><p className="mt-1 text-sm text-muted">Your post will appear as {profile?.display_name ?? 'your campus ghost'}.</p></div>
           <button type="button" onClick={onClose} disabled={busy} className="chip flex h-9 w-9 shrink-0 items-center justify-center rounded-full" aria-label="Close composer"><X size={17} /></button>
         </div>
-        {!profile?.isRegistered && <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-800">Create or sign in to your anonymous campus account to post, like, or comment. Visitors can still read and vote. <button type="button" onClick={() => onOpenAuth('register')} className="ml-1 font-bold underline">Join UNSEEN</button></div>}
+        {!profile?.isRegistered && <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-800">Create or sign in to your anonymous campus account to post, vote, react, like, or comment. Visitors can browse the campus feed. <button type="button" onClick={() => onOpenAuth('register')} className="ml-1 font-bold underline">Join UNSEEN</button></div>}
         <form onSubmit={(event) => void submit(event)} className="mt-5 space-y-4">
           <label className="block text-sm font-semibold">Post type
             <select value={category} onChange={(event) => setCategory(event.target.value as PostCategory)} disabled={busy} className="input-themed mt-1.5 w-full rounded-2xl px-4 py-3">
@@ -127,8 +147,8 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: 
             {uploadStage && <div className="absolute inset-x-0 bottom-0 bg-white/95 px-3 py-2"><div className="h-1.5 overflow-hidden rounded-full bg-purple-100"><div className="h-full rounded-full bg-purple-600 transition-[width]" style={{ width: `${progress ?? 0}%` }} /></div><p className="mt-1 text-[11px] font-semibold text-muted">{uploadStage === 'preparing' ? 'Optimizing image…' : `Uploading image · ${progress ?? 0}%`}</p></div>}
           </div>}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <label className={`chip inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold ${busy ? 'pointer-events-none opacity-50' : ''}`}><ImagePlus size={16} /> Add image<input type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} className="sr-only" onChange={(event) => changeFile(event.target.files?.[0] ?? null)} /></label>
-            {usage !== null && <span className="text-xs font-semibold text-muted">{usage} of 5 posts left today</span>}
+            <label className={`chip inline-flex cursor-pointer items-center gap-2 rounded-full px-4 py-2.5 text-xs font-bold ${busy ? 'pointer-events-none opacity-50' : ''}`}><ImagePlus size={16} /> Add image<input type="file" accept="image/jpeg,image/png,image/webp,.heic,.heif" disabled={busy} className="sr-only" onChange={(event) => { changeFile(event.target.files?.[0] ?? null); event.currentTarget.value = ''; }} /></label>
+            {usage !== null && dailyLimit !== null && <span className="text-xs font-semibold text-muted">{usage} of {dailyLimit} shared posts, polls & spotted slots left today</span>}
           </div>
           <p className="text-[11px] leading-relaxed text-faint">Images up to 20 MB are resized for the campus feed and stored privately. Avoid faces, names, phone numbers, or personal information.</p>
           {error && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p>}

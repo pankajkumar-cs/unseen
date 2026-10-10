@@ -54,7 +54,9 @@ export function getUserFacingError(error: unknown, fallback: string): string {
   if (/post text must be 1 to 500|comment must be 1 to 500/.test(normalized)) return 'Text must be between 1 and 500 characters.';
   if (/message must be 1 to 500/.test(normalized)) return 'Messages must be between 1 and 500 characters.';
   if (/polls need 2 to 6 options/.test(normalized)) return 'A poll needs between 2 and 6 options.';
-  if (/poll options must be 1 to 160/.test(normalized)) return 'Each poll option must be between 1 and 160 characters.';
+  if (/poll options must be 1 to 80/.test(normalized)) return 'Each poll option must be between 1 and 80 characters.';
+  if (/heic|heif/.test(normalized) && /image|photo/.test(normalized)) return 'Export the photo as JPG, PNG, or WebP, then try again.';
+  if (/image could not be opened|undecodable image/.test(normalized)) return 'This image could not be opened. Export it as JPG, PNG, or WebP and try again.';
   if (/invalid poll text/.test(normalized)) return 'Poll questions must be 8–200 characters, and the tag can be up to 40 characters.';
   if (/options must be an array|invalid poll options/.test(normalized)) return 'Choose valid options for this poll and try again.';
   if (/invalid spotted post/.test(normalized)) return 'Add a recipient name and keep the note within 500 characters.';

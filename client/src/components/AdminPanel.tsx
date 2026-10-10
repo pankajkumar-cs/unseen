@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Ban, Check, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Trash2, UserRound, X } from 'lucide-react';
+import { Ban, Check, KeyRound, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react';
 import { getFunctionErrorMessage, getUserFacingError } from '../lib/errors';
 import { formatIndiaDateTime } from '../lib/dates';
 import { requireSupabase } from '../lib/supabase';
 import { useAuth } from '../auth/AuthContext';
-import { useRealtime } from '../realtime/RealtimeContext';
 
-type AdminTab = 'overview' | 'users' | 'posts' | 'comments' | 'media' | 'reports' | 'invitations' | 'audit';
+type AdminTab = 'overview' | 'users' | 'posts' | 'polls' | 'crushes' | 'comments' | 'media' | 'reports' | 'invitations' | 'audit';
 type AdminRow = Record<string, unknown>;
 type AdminResult = { rows?: AdminRow[]; overview?: Record<string, number>; invitation?: { code: string; id: string }; total?: number; pageSize?: number; error?: string; warning?: string };
 
@@ -17,6 +16,7 @@ interface AdminPanelProps {
 
 const tabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'overview', label: 'Overview' }, { id: 'users', label: 'Accounts' }, { id: 'posts', label: 'Posts' },
+  { id: 'polls', label: 'Polls' }, { id: 'crushes', label: 'Spotted' },
   { id: 'comments', label: 'Comments' }, { id: 'media', label: 'Images' }, { id: 'reports', label: 'Reports' },
   { id: 'invitations', label: 'Invitations' }, { id: 'audit', label: 'Audit log' },
 ];
@@ -87,7 +87,6 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
       void refreshRef.current(true);
     }, 200);
   }, []);
-  useRealtime(scheduleRealtimeRefresh);
   useEffect(() => {
     const userId = session?.user.id;
     if (!userId) return;
@@ -164,6 +163,15 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
       setPasswordError('');
       return;
     }
+    if (action === 'hide-report-content') {
+      const targetType = String(row.target_type ?? '');
+      if (targetType === 'post' && typeof row.post_public_id === 'string') void mutate(row.post_public_id, 'moderate-post', { postAction: 'hide' });
+      else if (targetType === 'comment' && typeof row.comment_public_id === 'string') void mutate(row.comment_public_id, 'moderate-comment');
+      else if (targetType === 'poll' && typeof row.poll_public_id === 'string') void mutate(row.poll_public_id, 'moderate-poll', { pollAction: 'hide' });
+      else if (targetType === 'crush' && typeof row.crush_public_id === 'string') void mutate(row.crush_public_id, 'moderate-crush', { crushAction: 'hide' });
+      else onToast('This report does not point to content that can be hidden.', 'error');
+      return;
+    }
     void mutate(String(row.id ?? ''), action, args);
   };
 
@@ -200,19 +208,22 @@ function MediaGrid({ rows, busyId, onRemove }: { rows: AdminRow[]; busyId: strin
 }
 
 function Overview({ values }: { values: Record<string, number> }) {
-  const cards = [['Active accounts', 'activeAccounts'], ['Posts in feed', 'posts'], ['Open reports', 'openReports'], ['Images', 'media']];
+  const cards = [['Active accounts', 'activeAccounts'], ['Posts in feed', 'posts'], ['Live polls', 'polls'], ['Spotted posts', 'crushes'], ['Open reports', 'openReports'], ['Images', 'media']];
   return <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">{cards.map(([label, key]) => <div key={key} className="rounded-2xl border border-soft bg-soft p-4"><p className="text-xs font-bold tracking-wider text-muted">{label}</p><p className="mt-1 font-grotesk text-3xl font-bold">{(values[key] ?? 0).toLocaleString()}</p></div>)}</div>;
 }
 
 function AdminItem({ row, tab, busy, onAction }: { row: AdminRow; tab: AdminTab; busy: boolean; onAction: (action: string, args?: Record<string, unknown>) => void }) {
-  const title = String(row.username ?? row.author_name ?? row.question ?? row.reason ?? row.action ?? row.target_id ?? row.id ?? 'Campus record');
-  const description = String(row.body ?? row.detail ?? row.reason ?? row.target_type ?? row.display_name ?? '');
+  const title = tab === 'reports'
+    ? `${String(row.target_type ?? 'Content')} report · ${String(row.reason ?? 'Needs review')}`
+    : String(row.username ?? row.author_name ?? row.question ?? row.recipient ?? row.reason ?? row.action ?? row.target_id ?? row.id ?? 'Campus record');
+  const description = String(row.content_preview ?? row.reported_content ?? row.body ?? row.message ?? row.question ?? row.detail ?? row.reason ?? row.target_type ?? row.display_name ?? '');
   const status = String(row.status ?? row.moderation_status ?? '');
   const stamp = typeof row.created_at === 'string' ? formatIndiaDateTime(row.created_at) : '';
   return <article className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-all text-sm font-bold">{title}</h3>{status && <span className="rounded-full bg-soft px-2 py-1 text-[10px] font-bold uppercase text-muted">{status}</span>}</div>{description && <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-muted">{description}</p>}<div className="mt-1 flex flex-wrap gap-2 text-[10px] text-faint">{typeof row.category === 'string' && <span>{row.category}</span>}{typeof row.target_type === 'string' && <span>{row.target_type}</span>}{typeof row.reporter === 'string' && <span>Reporter: {row.reporter}</span>}{typeof row.reported === 'string' && <span>Reported: {row.reported}</span>}{stamp && <time>{stamp}</time>}</div></div>
-    {tab !== 'audit' && <div className="flex shrink-0 flex-wrap gap-2">{tab === 'users' && <><button type="button" disabled={busy} title="Restore account" onClick={() => onAction('set-user-status', { status: 'ACTIVE' })} className="chip flex h-9 w-9 items-center justify-center rounded-full"><Check size={15} /></button><button type="button" disabled={busy} title="Suspend account" onClick={() => onAction('set-user-status', { status: 'SUSPENDED' })} className="chip flex h-9 w-9 items-center justify-center rounded-full"><Ban size={15} /></button><button type="button" disabled={busy} title="Ban account" onClick={() => onAction('set-user-status', { status: 'BANNED' })} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700"><UserRound size={15} /></button><button type="button" disabled={busy} title="Set a new password" onClick={() => onAction('open-password-reset')} className="chip flex h-9 w-9 items-center justify-center rounded-full text-unseen-700"><KeyRound size={15} /><span className="sr-only">Change password</span></button><button type="button" disabled={busy} onClick={() => onAction('set-user-role', { role: row.role === 'ADMIN' ? 'USER' : 'ADMIN' })} className="chip rounded-full px-3 py-2 text-xs font-bold">{row.role === 'ADMIN' ? 'Remove admin' : 'Make admin'}</button><button type="button" disabled={busy} onClick={() => { if (window.prompt('Type DELETE USER to permanently remove this account and its data.') === 'DELETE USER') onAction('delete-user', { confirmation: 'DELETE USER' }); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Permanently delete account"><Trash2 size={15} /></button></>}
+    {tab !== 'audit' && <div className="flex shrink-0 flex-wrap gap-2">{tab === 'users' && <><button type="button" disabled={busy} title="Restore account" onClick={() => onAction('set-user-status', { status: 'ACTIVE' })} className="chip flex h-9 w-9 items-center justify-center rounded-full"><Check size={15} /></button><button type="button" disabled={busy} title="Suspend account" onClick={() => { if (window.confirm(`Suspend ${title}? They will not be able to use member features until restored.`)) onAction('set-user-status', { status: 'SUSPENDED' }); }} className="chip flex h-9 w-9 items-center justify-center rounded-full"><ShieldAlert size={15} /></button><button type="button" disabled={busy} title="Ban account" onClick={() => { if (window.confirm(`Ban ${title}? Their account will lose access until restored.`)) onAction('set-user-status', { status: 'BANNED' }); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700"><Ban size={15} /></button><button type="button" disabled={busy || row.role === 'ADMIN'} title={row.role === 'ADMIN' ? 'Admin passwords cannot be reset here' : 'Set a new password'} onClick={() => onAction('open-password-reset')} className="chip flex h-9 w-9 items-center justify-center rounded-full text-unseen-700"><KeyRound size={15} /><span className="sr-only">Change password</span></button><button type="button" disabled={busy} onClick={() => onAction('set-user-role', { role: row.role === 'ADMIN' ? 'USER' : 'ADMIN' })} className="chip rounded-full px-3 py-2 text-xs font-bold">{row.role === 'ADMIN' ? 'Remove admin' : 'Make admin'}</button><button type="button" disabled={busy} onClick={() => { if (window.prompt('Type DELETE USER to permanently remove this account and its data.') === 'DELETE USER') onAction('delete-user', { confirmation: 'DELETE USER' }); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Permanently delete account"><Trash2 size={15} /></button></>}
       {tab === 'posts' && <><button type="button" disabled={busy} onClick={() => onAction('moderate-post', { postAction: 'hide' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Hide</button><button type="button" disabled={busy} onClick={() => onAction('moderate-post', { postAction: 'restore' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Restore</button><button type="button" disabled={busy} onClick={() => onAction('moderate-post', { postAction: 'delete' })} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Remove post"><Trash2 size={15} /></button></>}
-      {tab === 'reports' && <><button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'resolved' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Resolve</button><button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'dismissed' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Dismiss</button></>}
+      {(tab === 'polls' || tab === 'crushes') && <><button type="button" disabled={busy} onClick={() => onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'hide' } : { crushAction: 'hide' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Hide</button><button type="button" disabled={busy} onClick={() => onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'restore' } : { crushAction: 'restore' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Restore</button><button type="button" disabled={busy} onClick={() => onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'delete' } : { crushAction: 'delete' })} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Remove content"><Trash2 size={15} /></button></>}
+      {tab === 'reports' && <>{['post', 'comment', 'poll', 'crush'].includes(String(row.target_type)) && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Hide this ${String(row.target_type)} from the campus feed?`)) onAction('hide-report-content'); }} className="chip rounded-full px-3 py-2 text-xs font-bold">Hide content</button>}<button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'resolved' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Resolve</button><button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'dismissed' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Dismiss</button></>}
       {tab === 'comments' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Remove this comment from the campus feed?')) onAction('moderate-comment'); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Remove comment"><Trash2 size={15} /></button>}
       {tab === 'invitations' && row.status === 'UNUSED' && <button type="button" disabled={busy} onClick={() => onAction('revoke-invitation')} className="chip rounded-full px-3 py-2 text-xs font-bold">Revoke</button>}
       {busy && <LoaderCircle size={16} className="animate-spin self-center text-unseen-600" />}</div>}

@@ -128,7 +128,7 @@ export function App() {
         <Suspense fallback={null}>
           {authMode && <AuthDialog mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />}
           {composerOpen && <PostComposer open onClose={() => setComposerOpen(false)} onOpenAuth={setAuthMode} onToast={toast} onCreated={() => setFeedRefreshKey((key) => key + 1)} />}
-          {profileOpen && <ProfileDialog open onClose={() => setProfileOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
+          {profileOpen && <ProfileDialog open onClose={() => setProfileOpen(false)} onOpenAuth={setAuthMode} onOpenAdmin={() => setAdminOpen(true)} onToast={toast} />}
           {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} onToast={toast} />}
         </Suspense>
       </div>
