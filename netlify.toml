@@ -4,6 +4,7 @@
 
 [build.environment]
   NODE_VERSION = "22.12.0"
+  COREPACK_DEFAULT_TO_LATEST = "0"
 
 [[headers]]
   for = "/*"
