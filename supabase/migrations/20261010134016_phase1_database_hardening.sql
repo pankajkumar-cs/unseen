@@ -6,6 +6,9 @@ do $$ begin
   create type public.crush_status as enum ('published', 'hidden', 'deleted');
 exception when duplicate_object then null; end $$;
 
+-- The reaction RPC below references this field, so add it before defining the RPC.
+alter table public.crushes add column status public.crush_status not null default 'published';
+
 -- Anonymous Supabase sessions may browse, but all mutations require a real
 -- active campus account. Keep the existing read policies intact.
 create or replace function public.set_post_like(p_post_public_id uuid, p_liked boolean)
@@ -272,7 +275,6 @@ alter table public.posts add constraint posts_location_length_check
   check (location is null or char_length(location) <= 60);
 alter table public.posts add constraint posts_branch_length_check
   check (branch is null or char_length(branch) <= 60);
-alter table public.crushes add column status public.crush_status not null default 'published';
 alter table public.crushes add constraint crushes_location_length_check
   check (location is null or char_length(location) <= 120);
 create index crushes_status_feed_idx on public.crushes (status, created_at desc, public_id desc)
