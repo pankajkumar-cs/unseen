@@ -42,6 +42,22 @@ function genericCredentialError() {
   return json({ error: 'Invalid username or password.' }, 401);
 }
 
+function trustedClientIp(request: Request) {
+  // Supabase's edge gateway supplies cf-connecting-ip with the requester's IP.
+  // Do not trust caller-controlled forwarding headers such as x-forwarded-for.
+  const value = request.headers.get('cf-connecting-ip')?.trim();
+  return value && value.length <= 64 && !/[\s,]/.test(value) ? value.toLowerCase() : null;
+}
+
+async function checkRateLimit(admin: ReturnType<typeof createClient>, key: string, maxAttempts: number) {
+  const { data, error } = await admin.rpc('take_auth_attempt', {
+    p_attempt_key: await sha256(key),
+    p_max_attempts: maxAttempts,
+  });
+  if (error) return 'unavailable' as const;
+  return data ? 'allowed' as const : 'limited' as const;
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Method not allowed.' }, 405);
@@ -65,14 +81,20 @@ Deno.serve(async (request) => {
   const admin = createClient(supabaseUrl, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const publicClient = createClient(supabaseUrl, publicKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const username = normalizeUsername(body.username);
-  const clientIp = request.headers.get('cf-connecting-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
-  const attemptKey = await sha256(`unseen-auth:${clientIp}:${username || 'invitation'}`);
-  const { data: allowed, error: limitError } = await admin.rpc('take_auth_attempt', {
-    p_attempt_key: attemptKey,
-    p_max_attempts: 10,
-  });
-  if (limitError) return json({ error: 'Authentication is temporarily unavailable.' }, 503);
-  if (!allowed) return json({ error: 'Too many attempts. Please try again in 15 minutes.' }, 429);
+  const clientIp = trustedClientIp(request);
+  if (body.action === 'login' && (!/^[a-z0-9_]{3,20}$/.test(username) || !String(body.password ?? ''))) {
+    return genericCredentialError();
+  }
+  if (username) {
+    const result = await checkRateLimit(admin, `unseen-auth:${clientIp ?? 'username'}:${username}`, 10);
+    if (result === 'unavailable') return json({ error: 'Authentication is temporarily unavailable.' }, 503);
+    if (result === 'limited') return json({ error: 'Too many attempts. Please try again in 15 minutes.' }, 429);
+  }
+  if (clientIp && (body.action === 'register' || body.action === 'validate-invitation')) {
+    const result = await checkRateLimit(admin, `unseen-invitation-ip:${clientIp}`, 20);
+    if (result === 'unavailable') return json({ error: 'Authentication is temporarily unavailable.' }, 503);
+    if (result === 'limited') return json({ error: 'Too many invitation attempts from this network. Try again in 15 minutes.' }, 429);
+  }
 
   if (body.action === 'validate-invitation') {
     const code = normalizeCode(body.invitationCode);
@@ -144,22 +166,20 @@ Deno.serve(async (request) => {
 
   if (body.action === 'login') {
     const password = String(body.password ?? '');
-    if (!/^[a-z0-9_]{3,20}$/.test(username) || !password) return genericCredentialError();
+    const { data: signedIn, error: signInError } = await publicClient.auth.signInWithPassword({
+      email: `${username}@auth.unseen.invalid`,
+      password,
+    });
+    if (signInError || !signedIn.user || !signedIn.session) return genericCredentialError();
     const { data: account, error: accountError } = await admin.from('profiles')
-      .select('id, moderation_status')
-      .eq('username', username)
+      .select('moderation_status')
+      .eq('id', signedIn.user.id)
       .maybeSingle();
     if (accountError) return json({ error: 'Authentication is temporarily unavailable.' }, 503);
     if (!account) return genericCredentialError();
     if (account.moderation_status !== 'ACTIVE') {
       return json({ error: 'This account is suspended or banned. Contact UNSEEN moderators.' }, 403);
     }
-
-    const { data: signedIn, error: signInError } = await publicClient.auth.signInWithPassword({
-      email: `${username}@auth.unseen.invalid`,
-      password,
-    });
-    if (signInError || !signedIn.session) return genericCredentialError();
     return json({ success: true, session: signedIn.session });
   }
 
