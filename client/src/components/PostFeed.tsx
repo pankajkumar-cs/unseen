@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Virtuoso } from 'react-virtuoso';
 import { getUserFacingError } from '../lib/errors';
 import { formatRelativeIndiaTime } from '../lib/dates';
-import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2, X } from 'lucide-react';
+import { Bookmark, BookmarkCheck, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { ReportDialog } from './ReportDialog';
 import { usePublishRealtime, useRealtime } from '../realtime/RealtimeContext';
@@ -480,7 +480,7 @@ function PostCard({ post, profile, interaction, updateInteraction, onPostUpdate,
         </div>
         <div className="flex items-center gap-0.5">
           <button type="button" onClick={() => reportPostOrComment({ type: 'post', id: null })} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Report post"><Flag size={15} /></button>
-          <button type="button" onClick={() => void changeBookmark()} aria-pressed={post.bookmarked} className={`bookmark-btn chip flex h-11 w-11 items-center justify-center rounded-full ${post.bookmarked ? 'saved' : ''}`} aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark post'}><Bookmark size={15} /></button>
+          <button type="button" onClick={() => void changeBookmark()} aria-pressed={post.bookmarked} title={post.bookmarked ? 'Saved — click to remove' : 'Save post'} className={`chip flex h-11 w-11 items-center justify-center rounded-full transition-colors ${post.bookmarked ? 'border-purple-300 bg-purple-100 text-purple-700 shadow-sm' : ''}`} aria-label={post.bookmarked ? 'Saved. Remove bookmark' : 'Save post'}>{post.bookmarked ? <BookmarkCheck size={17} strokeWidth={2.5} /> : <Bookmark size={15} />}</button>
           <button type="button" onClick={() => void share()} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Share post"><Share2 size={15} /></button>
         </div>
       </div>
