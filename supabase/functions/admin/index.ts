@@ -12,6 +12,14 @@ async function digest(value: string) {
   const data = await crypto.subtle.digest('SHA-256', encoder.encode(value));
   return [...new Uint8Array(data)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+async function invitationCodeFor(id: string, secret: string) {
+  const key = await crypto.subtle.importKey('raw', encoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(`unseen-invitation-v1:${id}`));
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const characters = [...new Uint8Array(signature).slice(0, 16)].map((byte) => alphabet[byte % alphabet.length]);
+  const parts = Array.from({ length: 4 }, (_, part) => characters.slice(part * 4, part * 4 + 4).join(''));
+  return `UNSEEN-${parts.join('-')}`;
+}
 function safeReason(value: unknown) { return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 500); }
 
 function manageUserError(error: { code?: string; message?: string }) {
@@ -172,10 +180,15 @@ Deno.serve(async (request) => {
       return json({ rows, total: count ?? 0, pageSize: 60 });
     }
     if (action === 'invitations') {
-      const { data, error, count } = await admin.from('invitation_codes').select('id,status,created_at,claimed_at', { count: 'exact' })
+      const { data, error, count } = await admin.from('invitation_codes').select('id,code_digest,status,created_at,claimed_at', { count: 'exact' })
         .order('created_at', { ascending: false }).range(page * 100, page * 100 + 99);
       if (error) return json({ error: 'Could not load invitation status.' }, 503);
-      return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
+      const rows = await Promise.all((data ?? []).map(async (row) => {
+        if (row.status !== 'UNUSED') return { id: row.id, status: row.status, created_at: row.created_at, claimed_at: row.claimed_at, code: null };
+        const code = await invitationCodeFor(row.id, serviceKey);
+        return { id: row.id, status: row.status, created_at: row.created_at, claimed_at: row.claimed_at, code: await digest(code) === row.code_digest ? code : null };
+      }));
+      return json({ rows, total: count ?? 0, pageSize: 100 });
     }
     if (action === 'audit') {
       const { data, error, count } = await admin.from('admin_actions').select('id,admin_identity,action,target_type,target_id,reason,metadata,created_at', { count: 'exact' })
@@ -184,12 +197,10 @@ Deno.serve(async (request) => {
       return json({ rows: data ?? [], total: count ?? 0, pageSize: 100 });
     }
     if (action === 'create-invitation') {
-      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-      const bytes = crypto.getRandomValues(new Uint8Array(16));
-      const parts = Array.from({ length: 4 }, (_, part) => [...bytes.slice(part * 4, part * 4 + 4)].map((byte) => alphabet[byte % alphabet.length]).join(''));
-      const code = `UNSEEN-${parts.join('-')}`;
+      const id = crypto.randomUUID();
+      const code = await invitationCodeFor(id, serviceKey);
       const codeDigest = await digest(code.toUpperCase());
-      const { data, error } = await admin.from('invitation_codes').insert({ code_digest: codeDigest, digest_algorithm: 'sha256', status: 'UNUSED', created_by: profile.id }).select('id').single();
+      const { data, error } = await admin.from('invitation_codes').insert({ id, code_digest: codeDigest, digest_algorithm: 'sha256', status: 'UNUSED', created_by: profile.id }).select('id').single();
       if (error) return json({ error: 'Could not create an invitation.' }, 503);
       try { await recordAction('ADMIN_CREATED_INVITATION', 'invitation', data.id, '', {}); }
       catch { await admin.from('invitation_codes').delete().eq('id', data.id); throw new Error('The invitation was removed because its audit entry could not be written.'); }
@@ -343,6 +354,15 @@ Deno.serve(async (request) => {
       if (error || !data) return json({ error: 'Only an unused invitation can be revoked.' }, 409);
       await recordAction('ADMIN_REVOKED_INVITATION', 'invitation', id, reason, {});
       return json({ success: true });
+    }
+    if (action === 'reissue-invitation') {
+      const code = await invitationCodeFor(id, serviceKey);
+      const codeDigest = await digest(code);
+      const { data, error } = await admin.from('invitation_codes').update({ code_digest: codeDigest, digest_algorithm: 'sha256' })
+        .eq('id', id).eq('status', 'UNUSED').select('id').maybeSingle();
+      if (error || !data) return json({ error: 'Only an unused invitation can be reissued.' }, 409);
+      await recordAction('ADMIN_REISSUED_INVITATION', 'invitation', id, reason, {});
+      return json({ invitation: { id: data.id, code } });
     }
     return json({ error: 'Unknown moderation action.' }, 400);
   } catch {

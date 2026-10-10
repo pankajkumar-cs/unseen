@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Ban, Check, KeyRound, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Ban, Check, Copy, KeyRound, LoaderCircle, RefreshCw, ShieldAlert, ShieldCheck, Trash2, X } from 'lucide-react';
 import { getFunctionErrorMessage, getUserFacingError } from '../lib/errors';
 import { formatIndiaDateTime } from '../lib/dates';
 import { requireSupabase } from '../lib/supabase';
@@ -7,7 +7,7 @@ import { useAuth } from '../auth/AuthContext';
 
 type AdminTab = 'overview' | 'users' | 'posts' | 'polls' | 'crushes' | 'comments' | 'media' | 'reports' | 'invitations' | 'audit';
 type AdminRow = Record<string, unknown>;
-type AdminResult = { rows?: AdminRow[]; overview?: Record<string, number>; invitation?: { code: string; id: string }; total?: number; pageSize?: number; error?: string; warning?: string };
+type AdminResult = { rows?: AdminRow[]; overview?: Record<string, number>; total?: number; pageSize?: number; error?: string; warning?: string };
 
 interface AdminPanelProps {
   onClose: () => void;
@@ -32,7 +32,6 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
   const [overview, setOverview] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [invite, setInvite] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [passwordTarget, setPasswordTarget] = useState<{ id: string; username: string } | null>(null);
   const [newPassword, setNewPassword] = useState('');
@@ -55,7 +54,12 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
   const refresh = useCallback(async (silent = false) => {
     if (silent && loadingRef.current) { pendingRealtimeRefresh.current = true; return; }
     const sequence = ++refreshSequence.current;
-    if (!silent) { loadingRef.current = true; setLoading(true); }
+    if (!silent) {
+      loadingRef.current = true;
+      setLoading(true);
+      setRows([]);
+      setTotalRows(0);
+    }
     try {
       const data = await invoke(tab, { page, ...(tab === 'users' ? { search: userSearch } : {}) });
       if (sequence !== refreshSequence.current) return;
@@ -115,16 +119,30 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
     setBusyId(id);
     try {
       const result = await invoke(action, { id, reason: reason.trim(), ...args });
-      onToast(result.warning ?? 'Admin action completed.', result.warning ? 'error' : 'success');
+      onToast(result.warning ?? (action === 'reissue-invitation' ? 'Copyable code ready in the invitation list.' : 'Admin action completed.'), result.warning ? 'error' : 'success');
       await refresh();
     }
     catch (cause) { onToast(getUserFacingError(cause, 'The admin action could not be completed. Please try again.'), 'error'); }
     finally { setBusyId(null); }
   };
 
+  const copyInvitation = async (code: string) => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard is unavailable.');
+      await navigator.clipboard.writeText(code);
+      onToast('Invitation code copied.', 'success');
+    } catch {
+      onToast('Clipboard is unavailable. Select the displayed code and copy it manually.', 'error');
+    }
+  };
+
   const createInvite = async () => {
     setBusyId('new-invite');
-    try { const data = await invoke('create-invitation'); setInvite(data.invitation?.code ?? null); onToast('Invitation created. Copy the code now; it is only shown once.', 'success'); }
+    try {
+      await invoke('create-invitation');
+      onToast('Invitation created. Its code is available in this list while unused.', 'success');
+      await refresh();
+    }
     catch (cause) { onToast(getUserFacingError(cause, 'Could not create an invitation. Please try again.'), 'error'); }
     finally { setBusyId(null); }
   };
@@ -160,6 +178,11 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
   };
 
   const handleItemAction = (row: AdminRow, action: string, args?: Record<string, unknown>) => {
+    if (action === 'copy-invitation') {
+      if (typeof row.code === 'string') void copyInvitation(row.code);
+      else onToast('This invitation code is unavailable. Replace the unused code first.', 'error');
+      return;
+    }
     if (action === 'open-password-reset') {
       setPasswordTarget({ id: String(row.id ?? ''), username: String(row.username ?? 'campus account') });
       setNewPassword('');
@@ -186,7 +209,6 @@ export function AdminPanel({ onClose, onToast }: AdminPanelProps) {
         <div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-purple-100 text-unseen-700"><ShieldCheck size={21} /></span><div><p className="text-[11px] font-bold tracking-[.2em] text-unseen-600">PRIVATE MODERATION</p><h2 id="admin-heading" className="font-grotesk text-2xl font-bold">Campus admin</h2></div></div><div className="flex gap-2"><button type="button" onClick={() => void refresh()} disabled={loading} className="chip flex h-10 w-10 items-center justify-center rounded-full" aria-label="Refresh"><RefreshCw size={16} /></button><button type="button" onClick={onClose} className="chip flex h-10 w-10 items-center justify-center rounded-full" aria-label="Close"><X size={17} /></button></div></div>
         <nav className="scrollbar-hide mt-5 flex gap-2 overflow-x-auto border-b border-soft pb-3" aria-label="Admin sections">{tabs.map((item) => <button key={item.id} type="button" onClick={() => { setTab(item.id); setPage(0); }} className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold ${tab === item.id ? 'bg-purple-700 text-white' : 'chip'}`}>{item.label}</button>)}</nav>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-muted">Actions are checked against your active administrator account and recorded.</p><span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold ${liveConnected ? 'text-emerald-700' : 'text-amber-700'}`}><span className={`h-2 w-2 rounded-full ${liveConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />{liveConnected ? 'Live updates on' : 'Reconnecting · automatic refresh on'}</span>{tab === 'invitations' && <button type="button" onClick={() => void createInvite()} disabled={busyId !== null} className="btn-primary rounded-full px-4 py-2 text-xs font-bold">+ New invitation</button>}</div>
-        {invite && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div><p className="text-[10px] font-bold tracking-wider text-emerald-800">NEW INVITATION · COPY IT NOW</p><code className="mt-1 block select-all text-sm font-bold text-emerald-950">{invite}</code></div><button type="button" onClick={() => { void navigator.clipboard.writeText(invite); onToast('Invitation code copied.', 'success'); }} className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-bold text-white">Copy code</button></div>}
         <label className="mt-4 block text-xs font-semibold text-muted">Action note (optional)<input value={reason} onChange={(event) => setReason(event.target.value.slice(0, 500))} className="input-themed mt-1.5 w-full rounded-xl px-3 py-2.5" placeholder="Add a short moderator note" /></label>
         {tab === 'users' && <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><label className="min-w-56 flex-1 text-xs font-semibold text-muted">Find any account<input value={userSearch} onChange={(event) => { setUserSearch(event.target.value.slice(0, 20)); setPage(0); }} className="input-themed mt-1.5 w-full rounded-xl px-3 py-2.5" placeholder="Search username" /></label><span className="text-xs text-muted">{totalRows.toLocaleString()} accounts</span></div>}
         <div className="mt-4 max-h-[54vh] min-h-56 overflow-y-auto rounded-2xl border border-soft bg-card" aria-busy={loading}>
@@ -219,10 +241,18 @@ function Overview({ values }: { values: Record<string, number> }) {
 function AdminItem({ row, tab, busy, onAction }: { row: AdminRow; tab: AdminTab; busy: boolean; onAction: (action: string, args?: Record<string, unknown>) => void }) {
   const title = tab === 'reports'
     ? `${String(row.target_type ?? 'Content')} report · ${String(row.reason ?? 'Needs review')}`
-    : String(row.username ?? row.author_name ?? row.question ?? row.recipient ?? row.reason ?? row.action ?? row.target_id ?? row.id ?? 'Campus record');
+    : tab === 'invitations'
+      ? String(row.code ?? (row.status === 'UNUSED' ? 'Invitation code unavailable' : 'Invitation'))
+      : String(row.username ?? row.author_name ?? row.question ?? row.recipient ?? row.reason ?? row.action ?? row.target_id ?? row.id ?? 'Campus record');
   const preview = String(row.content_preview ?? row.reported_content ?? row.body ?? row.message ?? row.question ?? row.detail ?? row.reason ?? row.target_type ?? row.display_name ?? '');
   const detail = tab === 'reports' && typeof row.detail === 'string' && row.detail.trim() ? `\nReport note: ${row.detail}` : '';
-  const description = `${preview}${detail}`;
+  const description = tab === 'invitations'
+    ? typeof row.code === 'string'
+      ? 'Copy this code to share it. It stays valid until claimed or revoked.'
+      : row.status === 'UNUSED'
+        ? 'This code was created before code recovery was available. Replace it to get a copyable code; the invitation record stays the same.'
+        : ''
+    : `${preview}${detail}`;
   const status = String(row.status ?? row.moderation_status ?? '');
   const stamp = typeof row.created_at === 'string' ? formatIndiaDateTime(row.created_at) : '';
   return <article className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-all text-sm font-bold">{title}</h3>{status && <span className="rounded-full bg-soft px-2 py-1 text-[10px] font-bold uppercase text-muted">{status}</span>}</div>{description && <p className="mt-1 line-clamp-3 whitespace-pre-wrap text-xs leading-relaxed text-muted">{description}</p>}<div className="mt-1 flex flex-wrap gap-2 text-[10px] text-faint">{typeof row.category === 'string' && <span>{row.category}</span>}{typeof row.target_type === 'string' && <span>{row.target_type}</span>}{typeof row.reporter === 'string' && <span>Reporter: {row.reporter}</span>}{typeof row.reported === 'string' && <span>Reported: {row.reported}</span>}{stamp && <time>{stamp}</time>}</div></div>
@@ -231,7 +261,12 @@ function AdminItem({ row, tab, busy, onAction }: { row: AdminRow; tab: AdminTab;
       {(tab === 'polls' || tab === 'crushes') && <><button type="button" disabled={busy} onClick={() => onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'hide' } : { crushAction: 'hide' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Hide</button><button type="button" disabled={busy} onClick={() => onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'restore' } : { crushAction: 'restore' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Restore</button><button type="button" disabled={busy} onClick={() => { if (window.confirm(`Remove this ${tab === 'polls' ? 'poll' : 'spotted post'} from the campus feed?`)) onAction(tab === 'polls' ? 'moderate-poll' : 'moderate-crush', tab === 'polls' ? { pollAction: 'delete' } : { crushAction: 'delete' }); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Remove content"><Trash2 size={15} /></button></>}
       {tab === 'reports' && <>{['post', 'comment', 'poll', 'crush'].includes(String(row.target_type)) && <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Hide this ${String(row.target_type)} from the campus feed?`)) onAction('hide-report-content'); }} className="chip rounded-full px-3 py-2 text-xs font-bold">Hide content</button>}<button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'resolved' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Resolve</button><button type="button" disabled={busy} onClick={() => onAction('resolve-report', { status: 'dismissed' })} className="chip rounded-full px-3 py-2 text-xs font-bold">Dismiss</button></>}
       {tab === 'comments' && <button type="button" disabled={busy} onClick={() => { if (window.confirm('Remove this comment from the campus feed?')) onAction('moderate-comment'); }} className="chip flex h-9 w-9 items-center justify-center rounded-full text-rose-700" title="Remove comment"><Trash2 size={15} /></button>}
-      {tab === 'invitations' && row.status === 'UNUSED' && <button type="button" disabled={busy} onClick={() => onAction('revoke-invitation')} className="chip rounded-full px-3 py-2 text-xs font-bold">Revoke</button>}
+      {tab === 'invitations' && row.status === 'UNUSED' && <>
+        {typeof row.code === 'string'
+          ? <button type="button" disabled={busy} onClick={() => onAction('copy-invitation')} className="chip inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold"><Copy size={14} /> Copy code</button>
+          : <button type="button" disabled={busy} onClick={() => { if (window.confirm('The original code cannot be recovered. Replace it with a copyable code? This keeps the same invitation record, but any earlier copy of its code will stop working.')) onAction('reissue-invitation'); }} className="chip rounded-full px-3 py-2 text-xs font-bold">Replace &amp; copy</button>}
+        <button type="button" disabled={busy} onClick={() => onAction('revoke-invitation')} className="chip rounded-full px-3 py-2 text-xs font-bold">Revoke</button>
+      </>}
       {busy && <LoaderCircle size={16} className="animate-spin self-center text-unseen-600" />}</div>}
   </article>;
 }
