@@ -190,6 +190,8 @@ export async function submitReport(postId: string, targetType: 'post' | 'comment
     p_post_public_id: postId,
     p_target_type: targetType,
     p_comment_public_id: commentId,
+    p_poll_public_id: null,
+    p_crush_public_id: null,
     p_reason: reason,
     p_detail: detail,
   });

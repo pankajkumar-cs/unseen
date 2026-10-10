@@ -223,6 +223,7 @@ export type Database = {
           public_id: string
           recipient: string
           ships_count: number
+          status: Database["public"]["Enums"]["crush_status"]
         }
         Insert: {
           author_color?: string
@@ -239,6 +240,7 @@ export type Database = {
           public_id?: string
           recipient: string
           ships_count?: number
+          status?: Database["public"]["Enums"]["crush_status"]
         }
         Update: {
           author_color?: string
@@ -255,6 +257,7 @@ export type Database = {
           public_id?: string
           recipient?: string
           ships_count?: number
+          status?: Database["public"]["Enums"]["crush_status"]
         }
         Relationships: [
           {
@@ -381,6 +384,7 @@ export type Database = {
       }
       media: {
         Row: {
+          cleanup_claimed_until: string | null
           created_at: string
           file_size_bytes: number
           height: number | null
@@ -393,6 +397,7 @@ export type Database = {
           width: number | null
         }
         Insert: {
+          cleanup_claimed_until?: string | null
           created_at?: string
           file_size_bytes: number
           height?: number | null
@@ -405,6 +410,7 @@ export type Database = {
           width?: number | null
         }
         Update: {
+          cleanup_claimed_until?: string | null
           created_at?: string
           file_size_bytes?: number
           height?: number | null
@@ -768,11 +774,13 @@ export type Database = {
       reports: {
         Row: {
           comment_id: string | null
+          crush_public_id: string | null
           created_at: string
           detail: string | null
           id: string
           moderation_action: string | null
           post_public_id: string | null
+          poll_public_id: string | null
           reason: string
           reported_user_id: string | null
           reporter_auth_id: string | null
@@ -785,11 +793,13 @@ export type Database = {
         }
         Insert: {
           comment_id?: string | null
+          crush_public_id?: string | null
           created_at?: string
           detail?: string | null
           id?: string
           moderation_action?: string | null
           post_public_id?: string | null
+          poll_public_id?: string | null
           reason: string
           reported_user_id?: string | null
           reporter_auth_id?: string | null
@@ -802,11 +812,13 @@ export type Database = {
         }
         Update: {
           comment_id?: string | null
+          crush_public_id?: string | null
           created_at?: string
           detail?: string | null
           id?: string
           moderation_action?: string | null
           post_public_id?: string | null
+          poll_public_id?: string | null
           reason?: string
           reported_user_id?: string | null
           reporter_auth_id?: string | null
@@ -826,10 +838,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "reports_crush_public_id_fkey"
+            columns: ["crush_public_id"]
+            isOneToOne: false
+            referencedRelation: "crushes"
+            referencedColumns: ["public_id"]
+          },
+          {
             foreignKeyName: "reports_post_public_id_fkey"
             columns: ["post_public_id"]
             isOneToOne: false
             referencedRelation: "posts"
+            referencedColumns: ["public_id"]
+          },
+          {
+            foreignKeyName: "reports_poll_public_id_fkey"
+            columns: ["poll_public_id"]
+            isOneToOne: false
+            referencedRelation: "polls"
             referencedColumns: ["public_id"]
           },
           {
@@ -996,6 +1022,29 @@ export type Database = {
           viewer_owned: boolean
         }[]
       }
+      feed_top_liked_posts: {
+        Args: { p_limit?: number }
+        Returns: {
+          author_color: string
+          author_emoji: string
+          author_name: string
+          body: string
+          branch: string
+          category: Database["public"]["Enums"]["post_category"]
+          comments_count: number
+          created_at: string
+          image_height: number
+          image_width: number
+          likes_count: number
+          location: string
+          mime_type: string
+          public_id: string
+          storage_path: string
+          viewer_bookmarked: boolean
+          viewer_liked: boolean
+          viewer_owned: boolean
+        }[]
+      }
       feed_pulse_stats: {
         Args: never
         Returns: {
@@ -1029,6 +1078,32 @@ export type Database = {
         }[]
       }
       has_liked_post: { Args: { p_post_public_id: string }; Returns: boolean }
+      can_upload_media_object: { Args: { object_path: string }; Returns: boolean }
+      claim_expired_media_cleanup: {
+        Args: { p_limit?: number }
+        Returns: { storage_path: string }[]
+      }
+      complete_expired_media_cleanup: {
+        Args: { p_storage_paths: string[] }
+        Returns: number
+      }
+      release_expired_media_cleanup: {
+        Args: { p_storage_paths: string[] }
+        Returns: number
+      }
+      admin_manage_user: {
+        Args: {
+          p_action: string
+          p_admin_user_id: string
+          p_reason?: string
+          p_role?: Database["public"]["Enums"]["account_role"]
+          p_status?: Database["public"]["Enums"]["account_moderation_status"]
+          p_target_user_id: string
+        }
+        Returns: Json
+      }
+      prune_inactive_anonymous_users: { Args: never; Returns: number }
+      revoke_user_sessions: { Args: { p_user_id: string }; Returns: number }
       increment_crush_reaction: {
         Args: { p_crush_public_id: string; p_kind: string }
         Returns: {
@@ -1063,8 +1138,10 @@ export type Database = {
       submit_report: {
         Args: {
           p_comment_public_id: string
+          p_crush_public_id: string
           p_detail?: string
           p_post_public_id: string
+          p_poll_public_id: string
           p_reason: string
           p_target_type: Database["public"]["Enums"]["report_target_type"]
         }
@@ -1078,7 +1155,8 @@ export type Database = {
     Enums: {
       account_moderation_status: "ACTIVE" | "SUSPENDED" | "BANNED"
       account_role: "USER" | "ADMIN"
-      poll_status: "published" | "hidden" | "removed"
+      crush_status: "published" | "hidden" | "deleted"
+      poll_status: "published" | "hidden" | "removed" | "deleted"
       post_category:
         | "Confessions"
         | "Memes"
@@ -1091,7 +1169,7 @@ export type Database = {
         | "removed"
         | "deleted"
       report_status: "open" | "resolved" | "dismissed"
-      report_target_type: "post" | "comment" | "account"
+      report_target_type: "post" | "comment" | "account" | "poll" | "crush"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1221,7 +1299,8 @@ export const Constants = {
     Enums: {
       account_moderation_status: ["ACTIVE", "SUSPENDED", "BANNED"],
       account_role: ["USER", "ADMIN"],
-      poll_status: ["published", "hidden", "removed"],
+      crush_status: ["published", "hidden", "deleted"],
+      poll_status: ["published", "hidden", "removed", "deleted"],
       post_category: ["Confessions", "Memes", "Rants", "Spotted"],
       post_moderation_status: [
         "pending",
@@ -1231,7 +1310,7 @@ export const Constants = {
         "deleted",
       ],
       report_status: ["open", "resolved", "dismissed"],
-      report_target_type: ["post", "comment", "account"],
+      report_target_type: ["post", "comment", "account", "poll", "crush"],
     },
   },
 } as const

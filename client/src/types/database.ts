@@ -7,8 +7,11 @@ export type ModerationStatus = SupabaseDatabase['public']['Enums']['account_mode
 
 type GeneratedFunctions = SupabaseDatabase['public']['Functions'];
 type ReportRpc = Omit<GeneratedFunctions['submit_report'], 'Args'> & {
-  Args: Omit<GeneratedFunctions['submit_report']['Args'], 'p_comment_public_id'> & {
+  Args: Omit<GeneratedFunctions['submit_report']['Args'], 'p_post_public_id' | 'p_comment_public_id' | 'p_poll_public_id' | 'p_crush_public_id'> & {
+    p_post_public_id: string | null;
     p_comment_public_id: string | null;
+    p_poll_public_id: string | null;
+    p_crush_public_id: string | null;
   };
 };
 export type Database = Omit<SupabaseDatabase, 'public'> & {
