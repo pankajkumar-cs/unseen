@@ -56,6 +56,11 @@ export function PostFeed({ searchTerm, category, refreshKey, onCategoryChange, o
   const deepLinkScrolled = useRef<string | null>(null);
   const { profile } = useAuth();
 
+  const selectCategory = (value: PostCategory | null) => {
+    setSavedView(false);
+    onCategoryChange(value);
+  };
+
   const loadFirstPage = useCallback(async () => {
     const requestId = ++generation.current;
     loadMoreGeneration.current += 1;
@@ -230,7 +235,10 @@ export function PostFeed({ searchTerm, category, refreshKey, onCategoryChange, o
       </div>
       <div className="feed-category-scroll mt-5 flex snap-x snap-mandatory gap-2 pb-2 sm:mt-6" role="group" aria-label="Filter posts by category">
         <button type="button" onClick={() => { if (!profile?.isRegistered) { onOpenAuth('login'); return; } setSavedView((value) => !value); }} aria-pressed={savedView} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${savedView ? 'feed-category-active' : ''}`}>🔖 Saved</button>
-        {categories.map((item) => <button key={item.name} type="button" onClick={() => onCategoryChange(item.value)} aria-pressed={category === item.value} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${category === item.value ? 'feed-category-active' : ''}`}>{item.emoji} {item.name}</button>)}
+        {categories.map((item) => {
+          const active = !savedView && category === item.value;
+          return <button key={item.name} type="button" onClick={() => selectCategory(item.value)} aria-pressed={active} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${active ? 'feed-category-active' : ''}`}>{item.emoji} {item.name}</button>;
+        })}
       </div>
       {searchTerm.trim() && <p className="mt-2 text-xs text-muted">Search checks posts currently loaded in this feed.</p>}
       {error && <div role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
@@ -258,7 +266,7 @@ export function PostFeed({ searchTerm, category, refreshKey, onCategoryChange, o
           </div>
           <div className="card p-5" id="meme-wall-shortcut">
             <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-xl">😂</div><div><div className="font-grotesk font-bold">Meme Wall</div><div className="text-xs text-muted">The campus laugh track</div></div></div>
-            <button type="button" onClick={() => { onCategoryChange('Memes'); document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' }); }} className="chip mt-4 w-full rounded-full px-4 py-2 text-xs font-bold">Explore memes ↓</button>
+            <button type="button" onClick={() => { selectCategory('Memes'); document.getElementById('explore')?.scrollIntoView({ behavior: 'smooth' }); }} className="chip mt-4 w-full rounded-full px-4 py-2 text-xs font-bold">Explore memes ↓</button>
           </div>
           <div className="rounded-[24px] border border-soft p-5" style={{ background: 'linear-gradient(135deg,var(--surface),var(--bg2))' }}>
             <div className="text-xs font-bold tracking-[.17em] text-unseen-600">100% ANONYMOUS</div><p className="mt-2 font-grotesk text-lg font-bold">Your identity stays hidden. Your voice doesn’t.</p><p className="mt-2 text-xs leading-relaxed text-muted">The name on your posts is your campus ghost profile, never your username.</p>
