@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { getUserFacingError } from '../lib/errors';
 import { formatIndiaDate } from '../lib/dates';
-import { Heart, MapPin, Plus, Ship, X } from 'lucide-react';
+import { Flag, Heart, MapPin, Plus, Ship, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
+import { ReportDialog } from './ReportDialog';
 import { createCrush, loadCrushes, reactToCrush, type CrushView } from '../services/community';
+import { submitReport } from '../services/feed';
 
 interface CrushSectionProps {
   onOpenAuth: (mode: 'login' | 'register') => void;
@@ -16,13 +18,17 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
   const [items, setItems] = useState<CrushView[]>([]);
   const [loading, setLoading] = useState(true);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [reportItem, setReportItem] = useState<CrushView | null>(null);
+  const reactionLocks = useRef(new Set<string>());
+  const refreshTimer = useRef<number | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try { setItems(await loadCrushes()); }
     catch (cause) { onToast(getUserFacingError(cause, 'Spotted posts could not load.'), 'error'); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { void refresh(); }, []);
+  }, [onToast]);
+  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => () => { if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current); }, []);
 
   useRealtime((event) => {
     if (event.type === 'system:reconnected') { void refresh(); return; }
@@ -32,7 +38,12 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
       if (typeof id === 'string') setItems((current) => current.filter((item) => item.id !== id));
       return;
     }
-    void refresh();
+    if (event.type === 'crush:moderated' && event.payload.status !== 'published') {
+      const id = event.payload.id;
+      if (typeof id === 'string') setItems((current) => current.filter((item) => item.id !== id));
+    }
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => { void refresh(); refreshTimer.current = null; }, 1_200);
   });
 
   const create = async (recipient: string, location: string, message: string) => {
@@ -46,10 +57,24 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
   };
 
   const react = async (item: CrushView, kind: 'ship' | 'blush') => {
+    if (!profile?.isRegistered) { onOpenAuth('login'); return; }
+    const lockKey = `${item.id}:${kind}`;
+    if (reactionLocks.current.has(lockKey)) return;
+    reactionLocks.current.add(lockKey);
     try {
       const result = await reactToCrush(item.id, kind);
       if (result) setItems((current) => current.map((row) => row.id === item.id ? { ...row, ships: result.ships, blushes: result.blushes } : row));
     } catch (cause) { onToast(getUserFacingError(cause, 'Your reaction could not be saved.'), 'error'); }
+    finally { reactionLocks.current.delete(lockKey); }
+  };
+
+  const report = async (reason: string, detail: string) => {
+    if (!reportItem) return;
+    try {
+      await submitReport(null, 'crush', null, reason, detail, null, reportItem.id);
+      onToast('Thanks. The moderation team will review this report.', 'success');
+      setReportItem(null);
+    } catch (cause) { onToast(getUserFacingError(cause, 'Your report could not be sent.'), 'error'); }
   };
 
   return (
@@ -64,7 +89,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
         {!loading && !items.length && <div className="card relative mt-7 p-8 text-center"><div className="text-5xl">💘</div><h3 className="mt-3 font-grotesk font-bold">No spotted posts yet</h3><p className="mt-1 text-sm text-muted">Be the first to drop a kind, anonymous campus hint.</p></div>}
         {!loading && items.length > 0 && <div className="scrollbar-hide relative mt-7 flex snap-x gap-4 overflow-x-auto pb-2">
           {items.map((item) => <article key={item.id} className="card min-w-[280px] max-w-[340px] snap-start rounded-3xl border-soft p-5 backdrop-blur">
-            <div className="flex items-center justify-between"><span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#be185d,#6d28d9)' }}>💘 SPOTTED</span><time dateTime={item.createdAt} className="text-[11px] font-bold text-faint">{formatIndiaDate(item.createdAt)}</time></div>
+            <div className="flex items-center justify-between gap-2"><span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#be185d,#6d28d9)' }}>💘 SPOTTED</span><div className="flex items-center gap-1"><time dateTime={item.createdAt} className="text-[11px] font-bold text-faint">{formatIndiaDate(item.createdAt)}</time><button type="button" onClick={() => profile?.isRegistered ? setReportItem(item) : onOpenAuth('login')} className="chip flex h-10 w-10 shrink-0 items-center justify-center rounded-full" aria-label="Report spotted post"><Flag size={15} /></button></div></div>
             <h3 className="mt-3 font-grotesk text-[15px] font-bold">To: {item.recipient}</h3>
             {item.location && <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-pink-50 px-2.5 py-1 text-[11px] font-bold text-pink-700"><MapPin size={12} />{item.location}</div>}
             {item.message && <p className="mt-2.5 whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-muted">“{item.message}”</p>}
@@ -74,6 +99,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
         </div>}
       </div>
       {composerOpen && <SpottedComposer onClose={() => setComposerOpen(false)} onSubmit={create} />}
+      {reportItem && <ReportDialog onClose={() => setReportItem(null)} onSubmit={report} title="Report this spotted post" />}
     </section>
   );
 }

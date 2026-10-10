@@ -1022,6 +1022,52 @@ export type Database = {
           viewer_owned: boolean
         }[]
       }
+      feed_post_by_id: {
+        Args: { p_public_id: string }
+        Returns: {
+          author_color: string
+          author_emoji: string
+          author_name: string
+          body: string
+          branch: string
+          category: Database["public"]["Enums"]["post_category"]
+          comments_count: number
+          created_at: string
+          image_height: number
+          image_width: number
+          likes_count: number
+          location: string
+          mime_type: string
+          public_id: string
+          storage_path: string
+          viewer_bookmarked: boolean
+          viewer_liked: boolean
+          viewer_owned: boolean
+        }[]
+      }
+      feed_saved_posts: {
+        Args: { p_limit?: number }
+        Returns: {
+          author_color: string
+          author_emoji: string
+          author_name: string
+          body: string
+          branch: string
+          category: Database["public"]["Enums"]["post_category"]
+          comments_count: number
+          created_at: string
+          image_height: number
+          image_width: number
+          likes_count: number
+          location: string
+          mime_type: string
+          public_id: string
+          storage_path: string
+          viewer_bookmarked: boolean
+          viewer_liked: boolean
+          viewer_owned: boolean
+        }[]
+      }
       feed_top_liked_posts: {
         Args: { p_limit?: number }
         Returns: {

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getUserFacingError } from '../lib/errors';
 import { formatRelativeIndiaTime } from '../lib/dates';
 import { useRealtime } from '../realtime/RealtimeContext';
 import { loadPulseStats } from '../services/community';
-import { loadTopLikedPosts, type PostView } from '../services/feed';
+import { loadTopLikedPosts, postDeepLink, type PostView } from '../services/feed';
 
 interface PulseStats {
   secrets_today: number;
@@ -21,7 +21,9 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
   const [recent, setRecent] = useState<PostView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [updatedAt, setUpdatedAt] = useState('just now');
+  const [updatedAt, setUpdatedAt] = useState('—');
+  const refreshTimer = useRef<number | null>(null);
+  const mounted = useRef(true);
   const refresh = useCallback(async (withRecent = false) => {
     const [nextStats, nextPosts] = await Promise.all([
       loadPulseStats(),
@@ -29,7 +31,7 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
     ]);
     setStats(nextStats);
     if (nextPosts) setRecent(nextPosts);
-    setUpdatedAt('just now');
+    setUpdatedAt(new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' }).format(new Date()));
   }, []);
 
   const load = useCallback(async (withRecent = false) => {
@@ -40,17 +42,20 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
   }, [refresh]);
 
   useEffect(() => { void load(true); }, [load]);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    };
+  }, []);
   useRealtime((event) => {
-    if (event.type === 'system:reconnected') {
-      void load(true);
-      return;
-    }
-    if (event.type === 'post:new' || event.type === 'post:updated' || event.type === 'like:change'
-      || event.type === 'post:deleted' || event.type === 'post:moderated') {
-      void load(true);
-    } else if (event.type === 'crush:new' || event.type === 'crush:deleted') {
-      void load(false);
-    }
+    if (!['post:new', 'post:deleted', 'post:moderated', 'system:reconnected'].includes(event.type)) return;
+    if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => {
+      if (mounted.current) void load(true);
+      refreshTimer.current = null;
+    }, event.type === 'system:reconnected' ? 0 : 10_000);
   });
 
   const cards = [
@@ -76,7 +81,7 @@ export function PulseSection({ onCreatePost }: PulseSectionProps) {
       <div className="card mt-4 flex flex-col items-start gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
         <div className="flex shrink-0 items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl text-white" style={{ background: 'linear-gradient(135deg,#F59E0B,#EF4444)' }}>🔥</div><div><div className="font-grotesk text-sm font-bold">Most liked campus posts</div><div className="text-xs font-medium text-muted">Top approved posts by likes</div></div></div>
         <div className="flex w-full flex-1 flex-col gap-1.5 overflow-hidden text-[13px] font-medium">
-          {recent.length ? recent.map((post) => <a key={post.id} href={`#post-${post.id}`} className="flex min-w-0 items-center gap-2.5 rounded-xl border border-soft bg-soft p-2"><span>{recentEmoji[post.category] ?? '👻'}</span><span className="min-w-0 flex-1 truncate">{post.body}</span><span className="shrink-0 text-[11px] font-bold text-rose-600">♥ {post.likes}</span><time dateTime={post.createdAt} className="shrink-0 text-[11px] font-bold text-faint">{formatRelativeIndiaTime(post.createdAt)}</time></a>) : !loading && !error ? <div className="rounded-xl border border-soft bg-soft p-2 text-muted">No activity yet. Your campus can start the conversation.</div> : null}
+          {recent.length ? recent.map((post) => <a key={post.id} href={postDeepLink(post.id)} className="flex min-w-0 items-center gap-2.5 rounded-xl border border-soft bg-soft p-2"><span>{recentEmoji[post.category] ?? '👻'}</span><span className="min-w-0 flex-1 truncate">{post.body}</span><span className="shrink-0 text-[11px] font-bold text-rose-600">♥ {post.likes}</span><time dateTime={post.createdAt} className="shrink-0 text-[11px] font-bold text-faint">{formatRelativeIndiaTime(post.createdAt)}</time></a>) : !loading && !error ? <div className="rounded-xl border border-soft bg-soft p-2 text-muted">No activity yet. Your campus can start the conversation.</div> : null}
         </div>
         <button type="button" onClick={onCreatePost} className="btn-primary shrink-0 rounded-full px-5 py-2.5 text-xs font-bold">Join the buzz +</button>
       </div>

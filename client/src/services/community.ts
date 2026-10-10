@@ -105,6 +105,7 @@ export async function votePoll(pollId: string, optionId: string) {
 export async function loadCrushes(): Promise<CrushView[]> {
   const { data, error } = await requireSupabase().from('crushes')
     .select('public_id,recipient,location,message,author_name,author_emoji,author_color,ships_count,blushes_count,created_at,expires_at')
+    .eq('status', 'published')
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: false })
     .limit(50);

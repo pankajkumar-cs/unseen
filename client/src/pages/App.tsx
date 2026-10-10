@@ -25,6 +25,7 @@ export function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [feedCategory, setFeedCategory] = useState<PostCategory | null>(null);
+  const [feedRefreshKey, setFeedRefreshKey] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const progressBar = useRef<HTMLDivElement>(null);
   const heroContent = useRef<HTMLDivElement>(null);
@@ -110,7 +111,7 @@ export function App() {
           <PulseSection onCreatePost={() => setComposerOpen(true)} />
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
             {search && <div className="flex justify-end pt-6"><button type="button" className="chip rounded-full px-4 py-2 text-xs font-bold" onClick={() => setSearch('')}>Clear search ×</button></div>}
-            <PostFeed category={feedCategory} onCategoryChange={setFeedCategory} searchTerm={search} onOpenAuth={setAuthMode} onCreatePost={() => setComposerOpen(true)} onToast={toast} />
+            <PostFeed category={feedCategory} onCategoryChange={setFeedCategory} searchTerm={search} refreshKey={feedRefreshKey} onOpenAuth={setAuthMode} onCreatePost={() => setComposerOpen(true)} onToast={toast} />
           </div>
           <PollSection onOpenAuth={setAuthMode} onToast={toast} />
           <CrushSection onOpenAuth={setAuthMode} onToast={toast} />
@@ -126,7 +127,7 @@ export function App() {
         <div className="mobile-overlay-offset fixed right-4 z-[120] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 lg:right-6" aria-live="polite">{toasts.map((item) => <div key={item.id} className={`toast rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg ${item.kind === 'error' ? 'border-rose-200 bg-rose-50 text-rose-800' : item.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-soft bg-card text-primary'}`}>{item.text}</div>)}</div>
         <Suspense fallback={null}>
           {authMode && <AuthDialog mode={authMode} onClose={() => setAuthMode(null)} onModeChange={setAuthMode} />}
-          {composerOpen && <PostComposer open onClose={() => setComposerOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
+          {composerOpen && <PostComposer open onClose={() => setComposerOpen(false)} onOpenAuth={setAuthMode} onToast={toast} onCreated={() => setFeedRefreshKey((key) => key + 1)} />}
           {profileOpen && <ProfileDialog open onClose={() => setProfileOpen(false)} onOpenAuth={setAuthMode} onToast={toast} />}
           {adminOpen && <AdminPanel onClose={() => setAdminOpen(false)} onToast={toast} />}
         </Suspense>

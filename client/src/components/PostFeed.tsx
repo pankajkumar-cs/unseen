@@ -4,9 +4,9 @@ import { getUserFacingError } from '../lib/errors';
 import { formatRelativeIndiaTime } from '../lib/dates';
 import { Bookmark, Flag, Heart, ImageOff, LoaderCircle, MapPin, MessageCircle, Send, Share2, Trash2, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
+import { ReportDialog } from './ReportDialog';
 import { usePublishRealtime, useRealtime } from '../realtime/RealtimeContext';
-import { requireSupabase } from '../lib/supabase';
-import { createComment, deleteOwnPost, loadComments, loadPostPage, removeComment, submitReport, toggleBookmark, toggleLike, type CommentView, type FeedCursor, type PostView } from '../services/feed';
+import { createComment, deleteOwnPost, loadComments, loadPostById, loadPostPage, loadSavedPosts, postDeepLink, refreshSignedImageUrl, removeComment, submitReport, toggleBookmark, toggleLike, type CommentView, type FeedCursor, type PostView } from '../services/feed';
 import type { PostCategory } from '../types/database';
 
 const categories: Array<{ name: string; value: PostCategory | null; emoji: string }> = [
@@ -17,59 +17,43 @@ const categories: Array<{ name: string; value: PostCategory | null; emoji: strin
   { name: 'Spotted', value: 'Spotted', emoji: '👀' },
 ];
 
-const reportReasons = [
-  'Harassment / Bullying', 'Spam / Irrelevant', 'Personal Info (Doxxing)',
-  'Hate / abusive content', 'Sexual content', 'Threat', 'Personal information', 'Impersonation', 'Other',
-];
-function isPostCategory(value: unknown): value is PostCategory {
-  return typeof value === 'string' && categories.some((category) => category.value === value);
+function decodeURIComponentSafe(value: string) {
+  try { return decodeURIComponent(value); } catch { return value; }
 }
 
-function postFromEvent(payload: Record<string, unknown>, imageUrl: string | null = null): PostView | null {
-  if (typeof payload.id !== 'string' || !isPostCategory(payload.cat) || typeof payload.content !== 'string') return null;
-  if (typeof payload.author !== 'string' || typeof payload.createdAt !== 'string') return null;
-  return {
-    id: payload.id,
-    category: payload.cat,
-    body: payload.content,
-    authorName: payload.author,
-    authorEmoji: typeof payload.emoji === 'string' ? payload.emoji : '👻',
-    authorColor: typeof payload.color === 'string' ? payload.color : '#EDE9FE',
-    location: typeof payload.loc === 'string' ? payload.loc : null,
-    branch: null,
-    createdAt: payload.createdAt,
-    likes: typeof payload.likes === 'number' ? payload.likes : 0,
-    commentsCount: typeof payload.commentsCount === 'number' ? payload.commentsCount : 0,
-    liked: false,
-    owned: false,
-    bookmarked: false,
-    imagePath: typeof payload.imagePath === 'string' ? payload.imagePath : null,
-    imageUrl,
-    imageWidth: null,
-    imageHeight: null,
-  };
-}
+const EMPTY_INTERACTION: PostInteractionState = { commentsLoaded: false, commentsOpen: false, comments: [], commentText: '' };
 
 interface PostFeedProps {
   searchTerm: string;
   category: PostCategory | null;
+  refreshKey: number;
   onCategoryChange: (value: PostCategory | null) => void;
   onOpenAuth: (mode: 'login' | 'register') => void;
   onCreatePost: () => void;
   onToast: (message: string, kind?: 'success' | 'error' | 'info') => void;
 }
 
-export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, onCreatePost, onToast }: PostFeedProps) {
+interface PostInteractionState {
+  commentsLoaded: boolean;
+  commentsOpen: boolean;
+  comments: CommentView[];
+  commentText: string;
+}
+
+export function PostFeed({ searchTerm, category, refreshKey, onCategoryChange, onOpenAuth, onCreatePost, onToast }: PostFeedProps) {
   const [posts, setPosts] = useState<PostView[]>([]);
   const [cursor, setCursor] = useState<FeedCursor | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedView, setSavedView] = useState(false);
+  const [interactionByPost, setInteractionByPost] = useState<Record<string, PostInteractionState>>({});
   const sentinel = useRef<HTMLDivElement>(null);
   const generation = useRef(0);
   const loadMoreGeneration = useRef(0);
   const loadingMoreRef = useRef(false);
+  const deepLinkScrolled = useRef<string | null>(null);
   const { profile } = useAuth();
 
   const loadFirstPage = useCallback(async () => {
@@ -81,11 +65,31 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
     setError(null);
     setPosts([]);
     setCursor(null);
-    setHasMore(true);
+    setHasMore(!savedView);
     try {
+      if (savedView) {
+        if (!profile?.isRegistered) {
+          setPosts([]);
+          setHasMore(false);
+          return;
+        }
+        const saved = await loadSavedPosts();
+        if (requestId !== generation.current) return;
+        setPosts(saved);
+        return;
+      }
       const page = await loadPostPage(category, null);
       if (requestId !== generation.current) return;
-      setPosts(page.posts);
+      let initialPosts = page.posts;
+      const deepLink = window.location.hash.match(/^#post-(.+)$/)?.[1];
+      if (deepLink) {
+        try {
+          const linkedPost = await loadPostById(decodeURIComponent(deepLink));
+          if (requestId !== generation.current) return;
+          if (linkedPost && !initialPosts.some((post) => post.id === linkedPost.id)) initialPosts = [linkedPost, ...initialPosts];
+        } catch { /* Keep the feed usable if an old or malformed share link cannot resolve. */ }
+      }
+      setPosts(initialPosts);
       setCursor(page.cursor);
       setHasMore(page.posts.length === 20);
     } catch (cause: unknown) {
@@ -93,15 +97,25 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
     } finally {
       if (requestId === generation.current) setLoading(false);
     }
-  }, [category]);
+  }, [category, profile?.isRegistered, savedView]);
 
   useEffect(() => {
     void loadFirstPage();
     return () => { generation.current += 1; };
-  }, [loadFirstPage]);
+  }, [loadFirstPage, refreshKey]);
+
+  useEffect(() => {
+    const linkedId = window.location.hash.match(/^#post-(.+)$/)?.[1];
+    if (!linkedId || loading || !posts.some((post) => post.id === decodeURIComponentSafe(linkedId))) return;
+    const postId = decodeURIComponentSafe(linkedId);
+    if (deepLinkScrolled.current === postId) return;
+    deepLinkScrolled.current = postId;
+    const timer = window.setTimeout(() => document.getElementById(`post-${postId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    return () => window.clearTimeout(timer);
+  }, [loading, posts]);
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || !cursor || loadingMoreRef.current) return;
+    if (savedView || !hasMore || !cursor || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     const moreRequestId = ++loadMoreGeneration.current;
     setLoadingMore(true);
@@ -123,17 +137,17 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
         loadingMoreRef.current = false;
       }
     }
-  }, [category, cursor, hasMore, onToast]);
+  }, [category, cursor, hasMore, onToast, savedView]);
 
   useEffect(() => {
     const element = sentinel.current;
-    if (!element || !hasMore || loading || !('IntersectionObserver' in window)) return;
+    if (!element || savedView || !hasMore || loading || !('IntersectionObserver' in window)) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) void loadMore();
     }, { rootMargin: '600px 0px' });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadMore]);
+  }, [hasMore, loading, loadMore, savedView]);
 
   useRealtime((event) => {
     if (event.type === 'system:reconnected') {
@@ -153,6 +167,14 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       if (typeof id === 'string') setPosts((current) => current.filter((post) => post.id !== id));
       return;
     }
+    if (event.type === 'comment:new' || event.type === 'comment:deleted' || event.type === 'comment:updated') {
+      const postId = event.payload.postId;
+      const commentsCount = event.payload.commentsCount;
+      if (typeof postId === 'string' && typeof commentsCount === 'number' && Number.isFinite(commentsCount)) {
+        setPosts((current) => current.map((post) => post.id === postId ? { ...post, commentsCount: Math.max(0, commentsCount) } : post));
+      }
+      return;
+    }
     if (!['post:new', 'post:updated', 'post:moderated'].includes(event.type)) return;
     const id = event.payload.id;
     const status = event.payload.status;
@@ -161,39 +183,41 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
       setPosts((current) => current.filter((post) => post.id !== id));
       return;
     }
-    if (event.type === 'post:updated' && typeof event.payload.content !== 'string') {
+    if (event.type === 'post:updated') {
+      const hasImagePath = Object.prototype.hasOwnProperty.call(event.payload, 'imagePath');
       const imagePath = typeof event.payload.imagePath === 'string' ? event.payload.imagePath : null;
-      setPosts((current) => current.map((post) => post.id === id ? { ...post, imagePath, imageUrl: imagePath ? post.imageUrl : null } : post));
+      const allowed: Partial<PostView> = {};
+      if (typeof event.payload.content === 'string') allowed.body = event.payload.content;
+      if (typeof event.payload.likes === 'number' && Number.isFinite(event.payload.likes)) allowed.likes = Math.max(0, event.payload.likes);
+      if (typeof event.payload.commentsCount === 'number' && Number.isFinite(event.payload.commentsCount)) allowed.commentsCount = Math.max(0, event.payload.commentsCount);
+      if (hasImagePath) allowed.imagePath = imagePath;
+      if (Object.keys(allowed).length) setPosts((current) => current.map((post) => post.id === id ? { ...post, ...allowed, ...(imagePath === null && hasImagePath ? { imageUrl: null } : {}) } : post));
       if (imagePath) {
-        void requireSupabase().storage.from('unseen-media').createSignedUrl(imagePath, 3600)
-          .then(({ data }) => setPosts((current) => current.map((post) => post.id === id ? { ...post, imagePath, imageUrl: data?.signedUrl ?? null } : post)))
-          .catch(() => undefined);
+        void refreshSignedImageUrl(imagePath).then((imageUrl) => setPosts((current) => current.map((post) => post.id === id && post.imagePath === imagePath ? { ...post, imageUrl } : post))).catch(() => undefined);
       }
       return;
     }
-    const imagePath = typeof event.payload.imagePath === 'string' ? event.payload.imagePath : null;
-    const apply = (imageUrl: string | null) => {
-      const incoming = postFromEvent(event.payload, imageUrl);
+    if (savedView || !['post:new', 'post:moderated'].includes(event.type)) return;
+    void loadPostById(id).then((incoming) => {
       if (!incoming || (category && incoming.category !== category)) return;
-      setPosts((current) => {
-        const index = current.findIndex((post) => post.id === incoming.id);
-        if (index < 0) return event.type === 'post:new' || event.type === 'post:moderated' ? [incoming, ...current] : current;
-        const updated = [...current];
-        updated[index] = { ...updated[index], ...incoming, imageUrl: imageUrl ?? updated[index].imageUrl };
-        return updated;
-      });
-    };
-    if (imagePath && !event.payload.imageUrl) {
-      void requireSupabase().storage.from('unseen-media').createSignedUrl(imagePath, 3600)
-        .then(({ data }) => apply(data?.signedUrl ?? null))
-        .catch(() => apply(null));
-      return;
-    }
-    apply(null);
+      setPosts((current) => current.some((post) => post.id === incoming.id)
+        ? current.map((post) => post.id === incoming.id ? { ...post, body: incoming.body, likes: incoming.likes, commentsCount: incoming.commentsCount, imagePath: incoming.imagePath, imageUrl: incoming.imageUrl } : post)
+        : [incoming, ...current]);
+    }).catch(() => undefined);
   });
 
   const onPostUpdate = (id: string, change: Partial<PostView>) => {
-    setPosts((current) => current.map((post) => post.id === id ? { ...post, ...change } : post));
+    setPosts((current) => current.filter((post) => !(savedView && change.bookmarked === false && post.id === id)).map((post) => post.id === id ? { ...post, ...change } : post));
+  };
+  const updateInteraction = (id: string, change: Partial<PostInteractionState>) => {
+    setInteractionByPost((current) => {
+      const next = { ...current };
+      delete next[id];
+      next[id] = { ...EMPTY_INTERACTION, ...(current[id] ?? {}), ...change };
+      const keys = Object.keys(next);
+      if (keys.length > 100) delete next[keys[0]];
+      return next;
+    });
   };
 
   const visiblePosts = posts.filter((post) => !searchTerm.trim() || `${post.category} ${post.body}`.toLocaleLowerCase().includes(searchTerm.trim().toLocaleLowerCase()));
@@ -205,8 +229,10 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
         <button type="button" onClick={onCreatePost} className="btn-primary flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold"><Send size={15} /> Confess anonymously</button>
       </div>
       <div className="feed-category-scroll mt-5 flex snap-x snap-mandatory gap-2 pb-2 sm:mt-6" role="group" aria-label="Filter posts by category">
+        <button type="button" onClick={() => { if (!profile?.isRegistered) { onOpenAuth('login'); return; } setSavedView((value) => !value); }} aria-pressed={savedView} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${savedView ? 'feed-category-active' : ''}`}>🔖 Saved</button>
         {categories.map((item) => <button key={item.name} type="button" onClick={() => onCategoryChange(item.value)} aria-pressed={category === item.value} className={`chip min-h-11 shrink-0 snap-start whitespace-nowrap rounded-full px-4 py-2.5 text-[13px] font-bold transition-colors ${category === item.value ? 'feed-category-active' : ''}`}>{item.emoji} {item.name}</button>)}
       </div>
+      {searchTerm.trim() && <p className="mt-2 text-xs text-muted">Search checks posts currently loaded in this feed.</p>}
       {error && <div role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       <div className="feed-two-col mt-4">
         <div className="masonry min-w-0" aria-live="polite" aria-busy={loading}>
@@ -217,12 +243,12 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
             defaultItemHeight={360}
             increaseViewportBy={{ top: 500, bottom: 900 }}
             computeItemKey={(_index, post) => post.id}
-            itemContent={(_index, post) => <div className="pb-5"><PostCard post={post} profile={profile} onPostUpdate={onPostUpdate} onOpenAuth={onOpenAuth} onToast={onToast} /></div>}
+            itemContent={(_index, post) => <div className="pb-5"><PostCard post={post} profile={profile} interaction={interactionByPost[post.id] ?? EMPTY_INTERACTION} updateInteraction={(change) => updateInteraction(post.id, change)} onPostUpdate={onPostUpdate} onDeletePost={(id) => setPosts((current) => current.filter((item) => item.id !== id))} onOpenAuth={onOpenAuth} onToast={onToast} /></div>}
           />}
           {!loading && !visiblePosts.length && <div className="card p-10 text-center"><div className="text-5xl">👻</div><div className="mt-3 font-grotesk text-xl font-bold">{searchTerm ? 'No secrets found' : 'No secrets here yet'}</div><p className="mt-1 text-sm text-muted">{searchTerm ? 'Try another search, or share your own story.' : 'Be the first ghost to share something with campus.'}</p><button type="button" onClick={onCreatePost} className="btn-primary mt-5 rounded-full px-6 py-2.5 text-sm font-bold">+ Confess anonymously</button></div>}
           <div ref={sentinel} className="h-1" aria-hidden="true" />
           {!loading && loadingMore && <div className="flex justify-center py-6 text-unseen-700"><LoaderCircle size={22} className="animate-spin" aria-label="Loading more posts" /></div>}
-          {!loading && !hasMore && visiblePosts.length > 0 && <p className="py-6 text-center text-xs font-semibold text-faint">You’re all caught up.</p>}
+          {!loading && !savedView && !hasMore && visiblePosts.length > 0 && <p className="py-6 text-center text-xs font-semibold text-faint">You’re all caught up.</p>}
         </div>
         <aside className="hidden flex-col gap-4 lg:flex">
           <div className="card p-5">
@@ -242,27 +268,34 @@ export function PostFeed({ searchTerm, category, onCategoryChange, onOpenAuth, o
     </section>
   );
 }
-
 interface PostCardProps {
   post: PostView;
   profile: ReturnType<typeof useAuth>['profile'];
   onPostUpdate: (id: string, change: Partial<PostView>) => void;
+  onDeletePost: (id: string) => void;
+  interaction: PostInteractionState;
+  updateInteraction: (change: Partial<PostInteractionState>) => void;
   onOpenAuth: (mode: 'login' | 'register') => void;
   onToast: (message: string, kind?: 'success' | 'error' | 'info') => void;
 }
 
-function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCardProps) {
-  const [commentsOpen, setCommentsOpen] = useState(false);
-  const [comments, setComments] = useState<CommentView[]>([]);
+function PostCard({ post, profile, interaction, updateInteraction, onPostUpdate, onDeletePost, onOpenAuth, onToast }: PostCardProps) {
+  const { commentsOpen, comments, commentText, commentsLoaded } = interaction;
   const [commentsLoading, setCommentsLoading] = useState(false);
-  const [commentText, setCommentText] = useState('');
+  const [commentsLoadFailed, setCommentsLoadFailed] = useState(false);
   const [pending, setPending] = useState(false);
   const [imageBroken, setImageBroken] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
   const [reportTarget, setReportTarget] = useState<{ type: 'post' | 'comment' | 'account'; id: string | null } | null>(null);
   const publishRealtime = usePublishRealtime();
   const lock = useRef(false);
-  const commentsLoaded = useRef(false);
+  const bookmarkLock = useRef(false);
+  const refreshAttemptedUrl = useRef<string | null>(null);
+
+  useEffect(() => {
+    setImageBroken(false);
+    refreshAttemptedUrl.current = null;
+  }, [post.imagePath]);
 
   useEffect(() => {
     if (!imageOpen) return;
@@ -279,13 +312,17 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   }, [imageOpen]);
 
   useEffect(() => {
-    if (!commentsOpen || commentsLoaded.current || commentsLoading) return;
-    commentsLoaded.current = true;
+    if (!commentsOpen || commentsLoaded || commentsLoading || commentsLoadFailed) return;
     setCommentsLoading(true);
-    void loadComments(post.id).then(setComments).catch((cause: unknown) => {
+    void loadComments(post.id).then((nextComments) => {
+      setCommentsLoadFailed(false);
+      updateInteraction({ comments: nextComments, commentsLoaded: true });
+    }).catch((cause: unknown) => {
+      setCommentsLoadFailed(true);
+      updateInteraction({ commentsLoaded: false });
       onToast(getUserFacingError(cause, 'Comments could not load.'), 'error');
     }).finally(() => setCommentsLoading(false));
-  }, [commentsOpen, comments.length, commentsLoading, post.id, onToast]);
+  }, [commentsOpen, commentsLoaded, commentsLoading, commentsLoadFailed, post.id, onToast, updateInteraction]);
 
   useRealtime((event) => {
     const postId = event.payload.postId;
@@ -301,15 +338,18 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
         createdAt: typeof event.payload.createdAt === 'string' ? event.payload.createdAt : new Date().toISOString(),
         mine: false,
       };
-      setComments((current) => current.some((comment) => comment.id === id) ? current : [...current, item]);
+      updateInteraction({ commentsLoaded: true, comments: comments.some((comment) => comment.id === id) ? comments : [...comments, item] });
+      if (typeof event.payload.commentsCount === 'number') onPostUpdate(post.id, { commentsCount: Math.max(0, event.payload.commentsCount) });
     } else if (event.type === 'comment:deleted') {
       const id = event.payload.id;
-      if (typeof id === 'string') setComments((current) => current.filter((comment) => comment.id !== id));
+      if (typeof id === 'string') updateInteraction({ comments: comments.filter((comment) => comment.id !== id) });
+      if (typeof event.payload.commentsCount === 'number') onPostUpdate(post.id, { commentsCount: Math.max(0, event.payload.commentsCount) });
     } else if (event.type === 'comment:updated') {
       const id = event.payload.id;
       if (typeof id !== 'string') return;
-      if (event.payload.status !== 'approved') setComments((current) => current.filter((comment) => comment.id !== id));
-      else setComments((current) => current.map((comment) => comment.id === id && typeof event.payload.text === 'string' ? { ...comment, body: event.payload.text } : comment));
+      if (event.payload.status !== 'approved') updateInteraction({ comments: comments.filter((comment) => comment.id !== id) });
+      else updateInteraction({ comments: comments.map((comment) => comment.id === id && typeof event.payload.text === 'string' ? { ...comment, body: event.payload.text } : comment) });
+      if (typeof event.payload.commentsCount === 'number') onPostUpdate(post.id, { commentsCount: Math.max(0, event.payload.commentsCount) });
     }
   });
 
@@ -331,11 +371,14 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
 
   const changeBookmark = async () => {
     if (!profile?.isRegistered) { onOpenAuth('login'); return; }
+    if (bookmarkLock.current) return;
+    bookmarkLock.current = true;
     try {
       const bookmarked = await toggleBookmark(profile.userId, post.id);
       onPostUpdate(post.id, { bookmarked });
       onToast(bookmarked ? 'Saved to your bookmarks.' : 'Removed from your bookmarks.', 'success');
     } catch (cause) { onToast(getUserFacingError(cause, 'Bookmark could not be saved.'), 'error'); }
+    finally { bookmarkLock.current = false; }
   };
 
   const addComment = async (event: FormEvent<HTMLFormElement>) => {
@@ -346,16 +389,16 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
     setPending(true);
     try {
       const comment = await createComment(post.id, body);
-      setComments((current) => current.some((item) => item.id === comment.id) ? current : [...current, comment]);
+      updateInteraction({ commentsLoaded: true, comments: comments.some((item) => item.id === comment.id) ? comments : [...comments, comment] });
       onPostUpdate(post.id, { commentsCount: post.commentsCount + 1 });
-      setCommentText('');
+      updateInteraction({ commentText: '' });
     } catch (cause) { onToast(getUserFacingError(cause, 'Your reply could not be posted.'), 'error'); }
     finally { setPending(false); }
   };
 
   const deletePost = async () => {
     if (!window.confirm('Remove this post from the campus feed?')) return;
-    try { await deleteOwnPost(post.id); }
+    try { await deleteOwnPost(post.id); onDeletePost(post.id); }
     catch (cause) { onToast(getUserFacingError(cause, 'This post could not be removed.'), 'error'); }
   };
 
@@ -369,15 +412,29 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
   };
 
   const share = async () => {
-    const link = `${window.location.origin}${window.location.pathname}#post-${post.id}`;
+    const link = postDeepLink(post.id);
     try {
       if (navigator.share) await navigator.share({ title: 'UNSEEN campus post', url: link });
       else { await navigator.clipboard.writeText(link); onToast('Post link copied.', 'success'); }
     } catch { /* A cancelled native share is not an error. */ }
   };
 
+  const reportPostOrComment = (target: { type: 'post' | 'comment' | 'account'; id: string | null }) => {
+    if (!profile?.isRegistered) { onOpenAuth('login'); return; }
+    setReportTarget(target);
+  };
+
+  const refreshImageAfterError = async () => {
+    const path = post.imagePath;
+    const attemptKey = `${path ?? ''}|${post.imageUrl ?? ''}`;
+    if (!path || refreshAttemptedUrl.current === attemptKey) { setImageBroken(true); return; }
+    refreshAttemptedUrl.current = attemptKey;
+    try { onPostUpdate(post.id, { imageUrl: await refreshSignedImageUrl(path) }); }
+    catch { setImageBroken(true); }
+  };
+
   return (
-    <article id={`post-${post.id}`} className="card overflow-hidden p-4 sm:p-5" aria-label={`${post.category} post`}>
+    <article id={`post-${post.id}`} className="card scroll-mt-36 overflow-hidden p-4 sm:p-5" aria-label={`${post.category} post`}>
       <div className="flex items-start gap-3">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-xl" style={{ background: post.authorColor }}>{post.authorEmoji}</span>
         <div className="min-w-0 flex-1">
@@ -397,7 +454,7 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
 
       <p className="mt-4 whitespace-pre-wrap break-words text-[14px] font-medium leading-relaxed">{post.body}</p>
       {post.imagePath && !imageBroken && post.imageUrl && <button type="button" onClick={() => setImageOpen(true)} aria-label="Open post image full screen" className="mt-4 block w-full cursor-zoom-in overflow-hidden rounded-2xl bg-transparent p-0 text-left">
-        <img src={post.imageUrl} alt="Image shared anonymously by a campus ghost. Open full screen." width={post.imageWidth ?? undefined} height={post.imageHeight ?? undefined} loading="lazy" decoding="async" sizes="(min-width: 1100px) 33vw, (min-width: 640px) 50vw, 100vw" className="feed-post-image" onError={() => setImageBroken(true)} />
+        <img src={post.imageUrl} alt="Image shared anonymously by a campus ghost. Open full screen." width={post.imageWidth ?? undefined} height={post.imageHeight ?? undefined} loading="lazy" decoding="async" sizes="(min-width: 1100px) 33vw, (min-width: 640px) 50vw, 100vw" className="feed-post-image" onError={() => void refreshImageAfterError()} />
       </button>}
       {post.imagePath && imageBroken && <div className="post-image-fallback"><ImageOff size={14} className="mr-2" /> This image is no longer available.</div>}
 
@@ -411,10 +468,10 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-soft pt-3">
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={() => void changeLike()} aria-label={post.liked ? 'Unlike post' : 'Like post'} aria-pressed={post.liked} className="chip flex items-center gap-1 rounded-full px-2 py-2 text-xs font-bold"><Heart size={16} fill={post.liked ? 'currentColor' : 'none'} className={`transition-all duration-200 ${post.liked ? 'scale-110 text-rose-600' : 'text-muted'}`} /> <span>{post.likes}</span><span className="hidden xs:inline">Like</span></button>
-          <button type="button" onClick={() => setCommentsOpen((open) => !open)} aria-expanded={commentsOpen} className="chip flex items-center gap-1 rounded-full px-2 py-2 text-xs font-bold"><MessageCircle size={16} /><span>{post.commentsCount}</span><span className="hidden xs:inline">Reply</span></button>
+          <button type="button" onClick={() => { if (!commentsOpen) setCommentsLoadFailed(false); updateInteraction({ commentsOpen: !commentsOpen }); }} aria-expanded={commentsOpen} className="chip flex items-center gap-1 rounded-full px-2 py-2 text-xs font-bold"><MessageCircle size={16} /><span>{post.commentsCount}</span><span className="hidden xs:inline">Reply</span></button>
         </div>
         <div className="flex items-center gap-0.5">
-          <button type="button" onClick={() => setReportTarget({ type: 'post', id: null })} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Report post"><Flag size={15} /></button>
+          <button type="button" onClick={() => reportPostOrComment({ type: 'post', id: null })} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Report post"><Flag size={15} /></button>
           <button type="button" onClick={() => void changeBookmark()} aria-pressed={post.bookmarked} className={`bookmark-btn chip flex h-11 w-11 items-center justify-center rounded-full ${post.bookmarked ? 'saved' : ''}`} aria-label={post.bookmarked ? 'Remove bookmark' : 'Bookmark post'}><Bookmark size={15} /></button>
           <button type="button" onClick={() => void share()} className="chip flex h-11 w-11 items-center justify-center rounded-full" aria-label="Share post"><Share2 size={15} /></button>
         </div>
@@ -431,15 +488,15 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
                 <p className="mt-1 whitespace-pre-wrap break-words text-[13px] leading-relaxed">{comment.body}</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <button type="button" onClick={() => setReportTarget({ type: 'comment', id: comment.id })} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Report reply"><Flag size={15} /></button>
-                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => setComments((current) => current.filter((item) => item.id !== comment.id))).catch((cause: unknown) => onToast(getUserFacingError(cause, 'Reply could not be removed.'), 'error')); }} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={15} /></button>}
+              <button type="button" onClick={() => reportPostOrComment({ type: 'comment', id: comment.id })} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Report reply"><Flag size={15} /></button>
+                {comment.mine && <button type="button" onClick={() => { void removeComment(comment.id).then(() => updateInteraction({ comments: comments.filter((item) => item.id !== comment.id) })).catch((cause: unknown) => onToast(getUserFacingError(cause, 'Reply could not be removed.'), 'error')); }} className="flex h-11 w-11 items-center justify-center rounded-full text-muted hover:bg-black/5" aria-label="Delete your reply"><Trash2 size={15} /></button>}
               </div>
             </div>)}
             {!commentsLoading && comments.length === 0 && <p className="py-3 text-center text-xs text-muted">No replies yet. Keep it kind and be the first.</p>}
           </div>
           {profile?.isRegistered ? <form onSubmit={(event) => void addComment(event)} className="mt-4 flex gap-2">
             <label className="sr-only" htmlFor={`comment-${post.id}`}>Write an anonymous reply</label>
-            <input id={`comment-${post.id}`} value={commentText} onChange={(event) => setCommentText(event.target.value)} maxLength={500} placeholder="Reply anonymously…" className="input-themed min-w-0 flex-1 rounded-full px-4 py-2.5 text-[13px] font-medium" />
+            <input id={`comment-${post.id}`} value={commentText} onChange={(event) => updateInteraction({ commentText: event.target.value })} maxLength={500} placeholder="Reply anonymously…" className="input-themed min-w-0 flex-1 rounded-full px-4 py-2.5 text-[13px] font-medium" />
             <button disabled={pending || !commentText.trim()} className="btn-primary flex h-11 w-11 shrink-0 items-center justify-center rounded-full disabled:opacity-50" aria-label="Send reply"><Send size={15} /></button>
           </form> : <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-muted">
             <span>Sign in or join to reply anonymously.</span>
@@ -451,25 +508,5 @@ function PostCard({ post, profile, onPostUpdate, onOpenAuth, onToast }: PostCard
 
       {reportTarget && <ReportDialog onClose={() => setReportTarget(null)} onSubmit={report} />}
     </article>
-  );
-}
-
-function ReportDialog({ onClose, onSubmit }: { onClose: () => void; onSubmit: (reason: string, detail: string) => Promise<void> }) {
-  const [reason, setReason] = useState(reportReasons[0]);
-  const [detail, setDetail] = useState('');
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="modal active z-[110]" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <button type="button" className="modal-bg" aria-label="Close report dialog" onClick={() => { if (!busy) onClose(); }} />
-      <section className="modal-card card z-[1] w-full max-w-md rounded-t-[28px] p-6 sm:rounded-[28px]" role="dialog" aria-modal="true" aria-labelledby="report-title">
-        <h3 id="report-title" className="font-grotesk text-xl font-bold">Report for review</h3>
-        <p className="mt-1 text-sm text-muted">Reports are only visible to the UNSEEN moderation team.</p>
-        <form onSubmit={(event) => { event.preventDefault(); setBusy(true); void onSubmit(reason, detail).finally(() => setBusy(false)); }} className="mt-4 space-y-3">
-          <label className="block text-sm font-semibold">Reason<select value={reason} onChange={(event) => setReason(event.target.value)} className="input-themed mt-1.5 w-full rounded-2xl px-4 py-3">{reportReasons.map((item) => <option key={item}>{item}</option>)}</select></label>
-          <label className="block text-sm font-semibold">Details <span className="font-normal text-faint">(optional)</span><textarea value={detail} onChange={(event) => setDetail(event.target.value)} maxLength={500} rows={3} className="input-themed mt-1.5 w-full resize-y rounded-2xl px-4 py-3" placeholder="Add context for the moderators" /></label>
-          <div className="flex gap-2"><button type="button" disabled={busy} onClick={onClose} className="chip flex-1 rounded-full px-4 py-3 text-sm font-bold">Cancel</button><button disabled={busy} className="btn-primary flex-1 rounded-full px-4 py-3 text-sm font-bold">{busy ? 'Sending…' : 'Send report'}</button></div>
-        </form>
-      </section>
-    </div>
   );
 }

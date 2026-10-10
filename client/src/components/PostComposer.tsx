@@ -17,6 +17,7 @@ interface PostComposerProps {
   onClose: () => void;
   onOpenAuth: (mode: 'login' | 'register') => void;
   onToast: (message: string, kind?: 'success' | 'error' | 'info') => void;
+  onCreated?: () => void;
 }
 
 function sanitizeText(value: string) {
@@ -26,7 +27,7 @@ function sanitizeText(value: string) {
     .trim();
 }
 
-export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostComposerProps) {
+export function PostComposer({ open, onClose, onOpenAuth, onToast, onCreated }: PostComposerProps) {
   const { profile, session } = useAuth();
   const [category, setCategory] = useState<PostCategory>('Confessions');
   const [body, setBody] = useState('');
@@ -84,6 +85,7 @@ export function PostComposer({ open, onClose, onOpenAuth, onToast }: PostCompose
         uploaded = await uploadPostImage(file, session, setProgress, () => setUploadStage('uploading'));
       }
       const created = await createPost(category, cleanBody, uploaded?.publicId ?? null);
+      onCreated?.();
       setUsage(Math.max(0, 5 - created.usage_count));
       setBody('');
       setFile(null);

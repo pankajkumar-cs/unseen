@@ -20,7 +20,7 @@ const RealtimeStatusContext = createContext<RealtimeConnectionStatus | undefined
 const publicEvents = [
   'post:new', 'post:updated', 'post:deleted', 'post:moderated',
   'comment:new', 'comment:updated', 'comment:deleted', 'like:change',
-  'poll:new', 'poll:update', 'poll:deleted', 'crush:new', 'crush:update', 'crush:deleted',
+  'poll:new', 'poll:update', 'poll:deleted', 'crush:new', 'crush:update', 'crush:deleted', 'crush:moderated',
 ];
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
@@ -38,38 +38,46 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     const client = requireSupabase();
     let active = true;
     let hasConnected = false;
-    let channel = client.channel('unseen:feed', { config: { private: false, broadcast: { self: false } } });
-    channel = channel.on('presence', { event: 'sync' }, () => {
-      if (active) setOnlineCount(Object.keys(channel.presenceState()).length);
-    });
+    let feedChannel = client.channel('unseen:feed', { config: { private: true, broadcast: { self: false } } });
     for (const eventName of publicEvents) {
-      channel = channel.on('broadcast', { event: eventName }, (message) => {
+      feedChannel = feedChannel.on('broadcast', { event: eventName }, (message) => {
         const payload = message.payload;
         if (!payload || typeof payload !== 'object') return;
         publish({ type: eventName, payload: payload as Record<string, unknown> });
       });
     }
-    channel.subscribe((status) => {
+    const presenceChannel = client.channel('unseen:presence', { config: { private: false } })
+      .on('presence', { event: 'sync' }, () => {
+        if (active) setOnlineCount(Object.keys(presenceChannel.presenceState()).length);
+      });
+
+    feedChannel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         if (!active) return;
         setConnectionStatus('connected');
         if (hasConnected) publish({ type: 'system:reconnected', payload: {} });
         hasConnected = true;
-        void channel.track({ active: true }).then((result) => {
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        if (active) setConnectionStatus('reconnecting');
+      }
+    });
+
+    presenceChannel.subscribe((status) => {
+      if (status === 'SUBSCRIBED') {
+        if (!active) return;
+        void presenceChannel.track({ active: true }).then((result) => {
           if (active && result !== 'ok') setOnlineCount(null);
         }).catch(() => { if (active) setOnlineCount(null); });
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-        if (active) {
-          setConnectionStatus('reconnecting');
-          setOnlineCount(null);
-        }
+        if (active) setOnlineCount(null);
       }
     });
+
     return () => {
       active = false;
       setOnlineCount(null);
       setConnectionStatus('connecting');
-      void client.removeChannel(channel);
+      void Promise.all([client.removeChannel(feedChannel), client.removeChannel(presenceChannel)]);
     };
   }, [publish]);
 

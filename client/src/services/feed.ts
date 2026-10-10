@@ -48,6 +48,17 @@ async function signedMedia(paths: Array<string | null>) {
   return new Map(data.flatMap((entry) => entry.path && entry.signedUrl ? [[entry.path, entry.signedUrl] as const] : []));
 }
 
+export async function refreshSignedImageUrl(storagePath: string): Promise<string> {
+  const { data, error } = await requireSupabase().storage.from('unseen-media').createSignedUrl(storagePath, 3600);
+  throwIfError(error);
+  if (!data?.signedUrl) throw new Error('This image is no longer available.');
+  return data.signedUrl;
+}
+
+export function postDeepLink(postId: string): string {
+  return `${window.location.origin}/#post-${encodeURIComponent(postId)}`;
+}
+
 function toPostView(row: FeedPostRow, urls: Map<string, string>): PostView {
   return {
     id: row.public_id,
@@ -89,14 +100,27 @@ export async function loadPostPage(category: PostCategory | null, cursor: FeedCu
   };
 }
 
-export async function loadTopLikedPosts(limit = 3): Promise<PostView[]> {
-  const { data, error } = await requireSupabase().rpc('feed_posts_page', { p_limit: 50 });
+export async function loadPostById(postId: string): Promise<PostView | null> {
+  const { data, error } = await requireSupabase().rpc('feed_post_by_id', { p_public_id: postId });
   throwIfError(error);
-  const rows = [...(data ?? [])]
-    .sort((left, right) => right.likes_count - left.likes_count
-      || Date.parse(right.created_at) - Date.parse(left.created_at)
-      || right.public_id.localeCompare(left.public_id))
-    .slice(0, Math.max(1, Math.min(limit, 10)));
+  const row = data?.[0];
+  if (!row) return null;
+  const urls = await signedMedia([row.storage_path]);
+  return toPostView(row, urls);
+}
+
+export async function loadSavedPosts(limit = 100): Promise<PostView[]> {
+  const { data, error } = await requireSupabase().rpc('feed_saved_posts', { p_limit: limit });
+  throwIfError(error);
+  const rows = data ?? [];
+  const urls = await signedMedia(rows.map((row) => row.storage_path));
+  return rows.map((row) => toPostView(row, urls));
+}
+
+export async function loadTopLikedPosts(limit = 3): Promise<PostView[]> {
+  const { data, error } = await requireSupabase().rpc('feed_top_liked_posts', { p_limit: limit });
+  throwIfError(error);
+  const rows = data ?? [];
   const urls = await signedMedia(rows.map((row) => row.storage_path));
   return rows.map((row) => toPostView(row, urls));
 }
@@ -180,18 +204,31 @@ export async function toggleBookmark(userId: string, postId: string) {
     throwIfError(error);
     return false;
   }
-  const { error } = await client.from('bookmarks').insert({ user_id: userId, post_public_id: postId });
+  const { error } = await client.from('bookmarks').upsert(
+    { user_id: userId, post_public_id: postId },
+    { onConflict: 'user_id,post_public_id', ignoreDuplicates: true },
+  );
   throwIfError(error);
   return true;
 }
 
-export async function submitReport(postId: string, targetType: 'post' | 'comment' | 'account', commentId: string | null, reason: string, detail: string) {
+export type ReportTargetType = 'post' | 'comment' | 'account' | 'poll' | 'crush';
+
+export async function submitReport(
+  postId: string | null,
+  targetType: ReportTargetType,
+  commentId: string | null,
+  reason: string,
+  detail: string,
+  pollId: string | null = null,
+  crushId: string | null = null,
+) {
   const { error } = await requireSupabase().rpc('submit_report', {
     p_post_public_id: postId,
     p_target_type: targetType,
     p_comment_public_id: commentId,
-    p_poll_public_id: null,
-    p_crush_public_id: null,
+    p_poll_public_id: pollId,
+    p_crush_public_id: crushId,
     p_reason: reason,
     p_detail: detail,
   });

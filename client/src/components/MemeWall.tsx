@@ -3,7 +3,7 @@ import { getUserFacingError } from '../lib/errors';
 import { ChevronLeft, LoaderCircle, Share2 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useRealtime } from '../realtime/RealtimeContext';
-import { loadPostPage, toggleLike, type FeedCursor, type PostView } from '../services/feed';
+import { loadPostPage, postDeepLink, refreshSignedImageUrl, toggleLike, type FeedCursor, type PostView } from '../services/feed';
 
 const MEME_LIMIT = 32;
 type SwipeDirection = 'left' | 'right';
@@ -23,6 +23,9 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
   const pointerStart = useRef<{ x: number; y: number; axis: 'horizontal' | 'vertical' | null } | null>(null);
   const swipeLock = useRef(false);
+  const refreshTimer = useRef<number | null>(null);
+  const refreshedImageUrls = useRef(new Map<string, string>());
+  const imageRefreshInFlight = useRef(new Set<string>());
 
   const loadMemes = useCallback(async (reset = false) => {
     setLoading(true);
@@ -45,6 +48,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
   }, [onToast]);
 
   useEffect(() => { void loadMemes(true); }, [loadMemes]);
+  useEffect(() => () => { if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current); }, []);
 
   useRealtime((event) => {
     if (event.type === 'system:reconnected') { void loadMemes(true); return; }
@@ -53,17 +57,53 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
       setMemes((current) => current.map((post) => post.id === id ? { ...post, likes: event.payload.likes as number } : post));
       return;
     }
-    if ((event.type === 'post:deleted' || event.type === 'post:moderated') && typeof id === 'string') {
+    if (event.type === 'post:deleted' && typeof id === 'string') {
       setMemes((current) => current.filter((post) => post.id !== id));
       return;
     }
-    if (event.type === 'post:new' && event.payload.cat === 'Memes') void loadMemes();
-    if (event.type === 'post:updated' && typeof id === 'string' && event.payload.status === 'approved') {
-      setMemes((current) => current.map((post) => post.id === id && typeof event.payload.imagePath === 'string'
-        ? { ...post, imagePath: event.payload.imagePath as string, imageUrl: null }
-        : post));
+    if (event.type === 'post:moderated' && typeof id === 'string') {
+      if (event.payload.status !== 'approved') setMemes((current) => current.filter((post) => post.id !== id));
+      else void loadMemes(true);
+      return;
+    }
+    if (event.type === 'post:new' && event.payload.cat === 'Memes') {
+      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = window.setTimeout(() => { void loadMemes(); refreshTimer.current = null; }, 500);
+    }
+    if (event.type === 'post:updated' && typeof id === 'string' && (event.payload.status === undefined || event.payload.status === 'approved')) {
+      if (event.payload.cat && event.payload.cat !== 'Memes') {
+        setMemes((current) => current.filter((post) => post.id !== id));
+        return;
+      }
+      if (typeof event.payload.content === 'string') setMemes((current) => current.map((post) => post.id === id ? { ...post, body: event.payload.content as string } : post));
+      if (typeof event.payload.likes === 'number') setMemes((current) => current.map((post) => post.id === id ? { ...post, likes: Math.max(0, event.payload.likes as number) } : post));
+      if (Object.prototype.hasOwnProperty.call(event.payload, 'imagePath')) {
+        const path = typeof event.payload.imagePath === 'string' ? event.payload.imagePath : null;
+        setMemes((current) => current.map((post) => post.id === id ? { ...post, imagePath: path, ...(path === null ? { imageUrl: null } : {}) } : post));
+        if (path) void refreshSignedImageUrl(path).then((imageUrl) => {
+          setMemes((current) => current.map((post) => post.id === id && post.imagePath === path ? { ...post, imageUrl } : post));
+          setBrokenImages((current) => ({ ...current, [id]: false }));
+        }).catch(() => setBrokenImages((current) => ({ ...current, [id]: true })));
+        else setBrokenImages((current) => ({ ...current, [id]: false }));
+      }
+      if (event.payload.category && event.payload.category !== 'Memes') setMemes((current) => current.filter((post) => post.id !== id));
     }
   });
+
+  const recoverImage = async (post: PostView) => {
+    if (!post.imagePath) { setBrokenImages((current) => ({ ...current, [post.id]: true })); return; }
+    if (imageRefreshInFlight.current.has(post.id)) return;
+    const attemptKey = `${post.imagePath}|${post.imageUrl ?? ''}`;
+    if (refreshedImageUrls.current.get(post.id) === attemptKey) { setBrokenImages((current) => ({ ...current, [post.id]: true })); return; }
+    refreshedImageUrls.current.set(post.id, attemptKey);
+    imageRefreshInFlight.current.add(post.id);
+    try {
+      const imageUrl = await refreshSignedImageUrl(post.imagePath);
+      setMemes((current) => current.map((item) => item.id === post.id && item.imagePath === post.imagePath ? { ...item, imageUrl } : item));
+      setBrokenImages((current) => ({ ...current, [post.id]: false }));
+    } catch { setBrokenImages((current) => ({ ...current, [post.id]: true })); }
+    finally { imageRefreshInFlight.current.delete(post.id); }
+  };
 
   const advance = (direction: SwipeDirection) => {
     const current = memes[index];
@@ -72,7 +112,9 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
     swipeLock.current = true;
     setSwiping(direction);
     if (direction === 'right' && !current.liked) {
+      setMemes((items) => items.map((item) => item.id === current.id ? { ...item, liked: true, likes: item.likes + 1 } : item));
       void toggleLike(current.id, true).catch((cause: unknown) => {
+        setMemes((items) => items.map((item) => item.id === current.id ? { ...item, liked: false, likes: Math.max(0, item.likes - 1) } : item));
         onToast(getUserFacingError(cause, 'The meme could not be liked.'), 'error');
       });
     }
@@ -84,7 +126,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
   };
 
   const share = async (post: PostView) => {
-    const url = `https://unseen-dec.in/p/${encodeURIComponent(post.id)}`;
+    const url = postDeepLink(post.id);
     try {
       if (navigator.share) await navigator.share({ title: 'UNSEEN campus meme', url });
       else { await navigator.clipboard.writeText(url); onToast('Meme link copied.', 'success'); }
@@ -152,7 +194,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
                 onPointerCancel={(event) => { pointerStart.current = null; setDragOffset(0); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); }}
               >
                 <div className="relative h-[300px] overflow-hidden">
-                  {meme.imageUrl && !brokenImages[meme.id] && <img src={meme.imageUrl} alt="Campus meme" loading="lazy" className="h-full w-full object-cover" onLoad={() => setBrokenImages((current) => ({ ...current, [meme.id]: false }))} onError={() => setBrokenImages((current) => ({ ...current, [meme.id]: true }))} />}
+                  {meme.imageUrl && !brokenImages[meme.id] && <img src={meme.imageUrl} alt="Campus meme" loading="lazy" className="h-full w-full object-cover" onLoad={() => setBrokenImages((current) => ({ ...current, [meme.id]: false }))} onError={() => void recoverImage(meme)} />}
                   {(!meme.imageUrl || brokenImages[meme.id]) && <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-purple-700 to-pink-500 p-8 text-center font-grotesk text-2xl font-bold text-white">{meme.body}</div>}
                   <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50" />
                   <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-bold">😂 DEC MEME</span>
@@ -168,7 +210,7 @@ export function MemeWall({ onOpenAuth, onToast }: MemeWallProps) {
           <div className="grid gap-4 sm:grid-cols-2">
             {!loading && !memes.length && <div className="card p-8 text-center sm:col-span-2"><div className="text-4xl">🫥</div><div className="mt-2 font-grotesk font-bold">Waiting for the first campus meme</div><p className="mt-1 text-sm text-muted">Real submissions will appear here.</p></div>}
             {memes.slice(0, 4).map((meme) => <article key={meme.id} className="card overflow-hidden">
-              <div className="relative h-40 overflow-hidden">{meme.imageUrl && !brokenImages[meme.id] ? <img src={meme.imageUrl} loading="lazy" alt="Campus meme" className="h-full w-full object-cover" onLoad={() => setBrokenImages((current) => ({ ...current, [meme.id]: false }))} onError={() => setBrokenImages((current) => ({ ...current, [meme.id]: true }))} /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-purple-700 to-pink-500 p-5 text-center font-bold text-white">{meme.body}</div>}</div>
+              <div className="relative h-40 overflow-hidden">{meme.imageUrl && !brokenImages[meme.id] ? <img src={meme.imageUrl} loading="lazy" alt="Campus meme" className="h-full w-full object-cover" onLoad={() => setBrokenImages((current) => ({ ...current, [meme.id]: false }))} onError={() => void recoverImage(meme)} /> : <div className="flex h-full items-center justify-center bg-gradient-to-br from-purple-700 to-pink-500 p-5 text-center font-bold text-white">{meme.body}</div>}</div>
               <div className="p-4"><div className="font-grotesk text-sm font-bold">{meme.authorName}</div><div className="mt-0.5 line-clamp-2 text-xs font-medium text-muted">{meme.body}</div><div className="mt-2.5 flex items-center justify-between"><span className="text-[11px] font-bold text-muted">🔥 {meme.likes}</span><button type="button" onClick={() => void share(meme)} className="text-[11px] font-bold text-unseen-600">SHARE →</button></div></div>
             </article>)}
           </div>
