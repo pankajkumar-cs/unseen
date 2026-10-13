@@ -117,7 +117,7 @@ export function PollSection({ onOpenAuth, onToast }: PollSectionProps) {
               const selected = poll.myOptionId === option.id;
               const percent = poll.totalVotes ? Math.round(option.votes / poll.totalVotes * 100) : 0;
               return <button key={option.id} type="button" disabled={Boolean(poll.myOptionId) || voteLocks.current.has(poll.id)} onClick={() => void castVote(poll, option.id)} className={`relative overflow-hidden rounded-2xl border text-left transition ${selected ? 'border-unseen-500 ring-2 ring-unseen-200' : 'border-soft'} ${poll.myOptionId ? 'cursor-default' : 'hover:scale-[1.01]'}`}>
-                <span className="poll-bar absolute inset-y-0 left-0" style={{ width: poll.myOptionId ? `${percent}%` : 0, background: option.color, opacity: poll.myOptionId ? .22 : 0 }} />
+                <span className="poll-bar absolute inset-y-0 left-0 transition-[width,opacity] duration-500 ease-out" style={{ width: poll.myOptionId ? `${percent}%` : 0, background: option.color, opacity: poll.myOptionId ? .22 : 0 }} />
                 <span className="relative flex items-center gap-2.5 p-3.5"><span className="text-xl">{option.emoji}</span><span className="flex-1 text-sm font-bold">{option.label}</span>{poll.myOptionId ? <><span className="font-grotesk text-sm font-bold">{percent}%</span>{selected && <span className="flex h-6 w-6 items-center justify-center rounded-full bg-unseen-600 text-white"><Check size={14} /></span>}</> : <span className="text-[11px] font-bold text-faint">VOTE →</span>}</span>
               </button>;
             })}

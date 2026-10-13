@@ -43,7 +43,10 @@ export function App() {
       frame = requestAnimationFrame(() => {
         const page = document.documentElement;
         const maxScroll = Math.max(1, page.scrollHeight - window.innerHeight);
-        if (progressBar.current) progressBar.current.style.width = `${Math.min(100, (window.scrollY / maxScroll) * 100)}%`;
+        if (progressBar.current) {
+          const ratio = Math.min(1, Math.max(0, window.scrollY / maxScroll));
+          progressBar.current.style.transform = `scaleX(${ratio})`;
+        }
         if (heroContent.current) {
           if (window.scrollY < window.innerHeight) {
             heroContent.current.style.transform = `translate3d(0,${window.scrollY * 0.12}px,0)`;
@@ -64,7 +67,7 @@ export function App() {
   return (
     <RealtimeProvider>
       <div id="top" className="mobile-page relative min-h-screen overflow-clip">
-        <div ref={progressBar} id="scroll-progress" className="fixed left-0 top-0 z-[100] h-[3px] w-0 bg-gradient-to-r from-purple-700 via-pink-500 to-amber-400" />
+        <div ref={progressBar} id="scroll-progress" className="fixed left-0 top-0 z-[100] h-[3px] w-full origin-left scale-x-0 bg-gradient-to-r from-purple-700 via-pink-500 to-amber-400 will-change-transform" />
         <Navbar
           onOpenAuth={setAuthMode}
           onOpenComposer={() => setComposerOpen(true)}
@@ -85,9 +88,9 @@ export function App() {
             </div>
 
             <div className="relative z-[10] mx-auto flex w-full max-w-7xl flex-1 flex-col justify-center px-4 py-10 sm:px-6">
-              <div ref={heroContent} id="hero-content" className="max-w-2xl transition-opacity">
+              <div ref={heroContent} id="hero-content" className="max-w-2xl will-change-transform">
                 <div className="glass soft inline-flex items-center gap-2 rounded-full border border-soft py-1.5 pl-2 pr-4 text-xs font-bold"><span className="h-2 w-2 rounded-full bg-green-500 live-dot" /> DEC-only anonymous community</div>
-                <h1 className="mt-5 font-grotesk text-[42px] font-bold leading-[1.02] tracking-tight sm:text-[64px] lg:text-[72px]">JO CAMPUS MEIN<br /><span className="grad-text">NAHI BOL PAATE,</span><br />YAHAN BOL DO.</h1>
+                <h1 className="mt-5 font-grotesk text-[34px] xs:text-[42px] font-bold leading-[1.02] tracking-tight sm:text-[64px] lg:text-[72px]">JO CAMPUS MEIN<br /><span className="grad-text">NAHI BOL PAATE,</span><br />YAHAN BOL DO.</h1>
                 <p className="mt-4 text-[17px] font-medium text-muted sm:text-xl">Your identity stays hidden. <span className="font-bold text-primary">Your voice doesn’t.</span></p>
                 <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted">Confessions, rants, spotted messages & memes — made <b className="text-primary">only for Dumka Engineering College</b>. No names. No fear. Sirf sach.</p>
                 <OnlineVisitorCount />
@@ -108,15 +111,15 @@ export function App() {
           </section>
 
           <div className="relative z-10 overflow-hidden border-y border-soft bg-card py-3"><div className="ticker-track flex w-max gap-8 text-[13px] font-semibold text-muted">{['👻 Campus feed is waiting for its next real secret.', '💜 Confessions, rants, spotted moments and memes.', '🛡️ No names. Keep it anonymous and kind.', '🎓 A campus corner made for Dumka Engineering College.'].map((line) => <span key={line} className="whitespace-nowrap">{line}<span className="ml-6 text-unseen-300">•</span></span>)}</div></div>
-          <PulseSection onCreatePost={() => setComposerOpen(true)} />
+          <div className="content-auto"><PulseSection onCreatePost={() => setComposerOpen(true)} /></div>
           <div className="mx-auto max-w-7xl px-4 sm:px-6">
             {search && <div className="flex justify-end pt-6"><button type="button" className="chip rounded-full px-4 py-2 text-xs font-bold" onClick={() => setSearch('')}>Clear search ×</button></div>}
             <PostFeed category={feedCategory} onCategoryChange={setFeedCategory} searchTerm={search} refreshKey={feedRefreshKey} onOpenAuth={setAuthMode} onCreatePost={() => setComposerOpen(true)} onToast={toast} />
           </div>
-          <PollSection onOpenAuth={setAuthMode} onToast={toast} />
-          <CrushSection onOpenAuth={setAuthMode} onToast={toast} />
+          <div className="content-auto"><PollSection onOpenAuth={setAuthMode} onToast={toast} /></div>
+          <div className="content-auto"><CrushSection onOpenAuth={setAuthMode} onToast={toast} /></div>
           <DeferredMemeWall onOpenAuth={setAuthMode} onToast={toast} />
-          <SafetySection />
+          <div className="content-auto"><SafetySection /></div>
           <CallToAction onCreatePost={() => setComposerOpen(true)} />
           <Footer onOpenAdmin={() => setAdminOpen(true)} showAdmin={profile?.role === 'ADMIN'} />
         </main>
@@ -176,7 +179,23 @@ function DeferredMemeWall({ onOpenAuth, onToast }: { onOpenAuth: (mode: 'login' 
 }
 
 function MemeWallPlaceholder() {
-  return <section className="overflow-hidden border-y border-soft bg-lav py-14"><div className="mx-auto max-w-7xl px-4 sm:px-6"><div className="skeleton h-8 w-56 rounded-full" /><div className="mt-4 grid gap-6 lg:grid-cols-[380px_1fr]"><div className="skeleton h-[520px] rounded-3xl" /><div className="skeleton h-64 rounded-3xl" /></div></div></section>;
+  return (
+    <section className="overflow-hidden border-y border-soft bg-lav py-14">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6">
+        <div className="skeleton h-8 w-56 rounded-full" />
+        <div className="mt-8 grid items-start gap-8 lg:grid-cols-[380px_1fr]">
+          <div className="mx-auto w-full max-w-[380px]">
+            <div className="skeleton h-[480px] sm:h-[500px] rounded-3xl" />
+            <div className="skeleton mt-4 h-6 rounded-full" />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="skeleton h-64 rounded-3xl" />
+            <div className="skeleton h-64 rounded-3xl" />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function Preloader() {

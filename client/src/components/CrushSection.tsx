@@ -87,7 +87,7 @@ export function CrushSection({ onOpenAuth, onToast }: CrushSectionProps) {
         </div>
         {loading && <p className="relative mt-7 text-sm text-muted">Loading the campus board…</p>}
         {!loading && !items.length && <div className="card relative mt-7 p-8 text-center"><div className="text-5xl">💘</div><h3 className="mt-3 font-grotesk font-bold">No spotted posts yet</h3><p className="mt-1 text-sm text-muted">Be the first to drop a kind, anonymous campus hint.</p></div>}
-        {!loading && items.length > 0 && <div className="scrollbar-hide relative mt-7 flex snap-x gap-4 overflow-x-auto pb-2">
+        {!loading && items.length > 0 && <div className="scrollbar-hide relative mt-7 flex snap-x gap-4 overflow-x-auto pb-2 overscroll-x-contain touch-pan-x">
           {items.map((item) => <article key={item.id} className="card min-w-[280px] max-w-[340px] snap-start rounded-3xl border-soft p-5 backdrop-blur">
             <div className="flex items-center justify-between gap-2"><span className="rounded-full px-2.5 py-1 text-[10px] font-bold text-white" style={{ background: 'linear-gradient(135deg,#be185d,#6d28d9)' }}>💘 SPOTTED</span><div className="flex items-center gap-1"><time dateTime={item.createdAt} className="text-[11px] font-bold text-faint">{formatIndiaDate(item.createdAt)}</time><button type="button" onClick={() => profile?.isRegistered ? setReportItem(item) : onOpenAuth('login')} className="chip flex h-10 w-10 shrink-0 items-center justify-center rounded-full" aria-label="Report spotted post"><Flag size={15} /></button></div></div>
             <h3 className="mt-3 font-grotesk text-[15px] font-bold">To: {item.recipient}</h3>
